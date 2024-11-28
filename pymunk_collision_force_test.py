@@ -38,7 +38,7 @@ def main():
 
     pygame.init()
     screen = pygame.display.set_mode((width, height))
-    pygame.display.set_caption("The ball drops")
+    pygame.display.set_caption("Collision Handler")
     clock = pygame.time.Clock()
 
     draw_options = DrawOptions(screen)
