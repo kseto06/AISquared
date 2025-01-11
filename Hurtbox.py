@@ -32,10 +32,11 @@ class Hurtbox:
 
     def hurtbox(self, body1: Cube, body2: Cube) -> bool:
         '''
-        This function takes in two bodies
+        This function takes in two bodies and checks if their bounding boxes overlap 
 
         Inputs:
-        other_obj: Cube (The other agent object)
+        body1 (Cube): first object
+        body2 (Cube): second object
         '''
 
         # Get the bounding boxes of the bodies
