@@ -4,6 +4,8 @@ import gymnasium as gym
 import random
 import sys
 from pymunk.pygame_util import DrawOptions
+from Cube import Cube
+from Hurtbox import Hurtbox
 
 width = 600
 height = 600
@@ -81,7 +83,7 @@ def draw_bounding_box(screen, shape, color=(255, 0, 0)):
     '''
     pygame.draw.rect(
         screen, color, 
-        pygame.Rect(shape.shape.body.position.x-shape.width/2, shape.shape.body.position.y-shape.height/2, shape.width, shape.height), 1
+        pygame.Rect(shape.shape.body.position.x-shape.width/2, shape.shape.body.position.y-shape.height/2, shape.width, shape.height), 4, border_radius=5
     )
 
 def main():
@@ -98,8 +100,9 @@ def main():
     x = 100
     ground = Ground(space, 25, 100, 585)
     platform1 = Ground(space, 25, -35, 340)
-    ball = Ball((x, 100), space, 4, 1)
-    ball2 = Ball((x+370, 100), space, 3, 2)
+    ball = Cube((x, 100), space, 4, 1, width=50, height=50)
+    ball2 = Cube((x+370, 100), space, 3, 2, width=50, height=50)
+    hurtbox = Hurtbox(x=ball.shape.body.position.x, y=ball.shape.body.position.y, size_x=ball.width, size_y=ball.width)
     collision_handler = space.add_collision_handler(1, 2)
     collision_handler.begin = collide
 
@@ -111,7 +114,9 @@ def main():
                 sys.exit(0)
 
         # Detect hitbox between balls
-        hitbox(ball, ball2)
+        hurtbox.update_pos(ball.shape.body.position.x, ball.shape.body.position.y)
+        print(hurtbox.hurtbox(ball, ball2))
+        # hitbox(ball, ball2)
 
         """
         Set the original ball (ball) to be the pursuer
