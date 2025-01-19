@@ -1,0 +1,33 @@
+POWERCAST REFERENCE:
+
+move : the entire attack 
+power : a broad action 
+cast : a single arrangement of hitboxes, which last for set frames and do set damage
+
+DESCRIPTION:
+
+it's like how a Band object might have a list of Musicians in it
+
+the band doesn't produce music, the musicians within it do
+
+similarly, the power doesn't produce hitboxes, the casts within it do
+
+the power just is the admin, executing the data from the casts in order, and switching to another power when needed
+
+(like how bands in a concert might switch out. if band1 does well, band 2 plays next. if band1 does bad, band 3 plays next)
+
+in this case, if power1 hits the opponent, power2 plays. if power1 doesn't hit, then power 3 plays.
+
+and in all these cases, the power is not directly storing data on attack damage or hitboxes. the casts within it, that are played in order, do.
+	
+we never just load a power w/o casts, just as we never would load a band object without immediately loading and using all the musicians
+ 
+a default move has 3 powers: the main attacking motion, the on-hit end, and the no-hit end
+
+it needs two ends cause the cooldown must differ
+    
+since hitting should reward the attacker with less cooldown (easier follow up)
+
+and missing should reward the defendant with more cooldown (easier to counter attack)
+    
+so moves by default have 3 powers
