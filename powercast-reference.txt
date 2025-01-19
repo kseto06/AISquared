@@ -31,3 +31,22 @@ since hitting should reward the attacker with less cooldown (easier follow up)
 and missing should reward the defendant with more cooldown (easier to counter attack)
     
 so moves by default have 3 powers
+
+EXAMPLE: POWERCASTING WITH THROWING A PAIR OF SUNGLASSES (inspired by Mortal Kombat Johnny Cage)
+
+the sunglasses move holds
+
+1. initial throw
+2. punch if it hits
+3. refresh glasses if it doesnt hit
+
+the sunglasses move also says to start at power 1
+
+and then power 1 says
+-> if i hit, go to 2
+-> if i don't hit, go to 3
+
+power 1 also has info on the attack itself, in the form of an ordered list of casts:
+1. take off glasses and animate
+2. throw them, making an object and hitboxes
+3. keep moving the hitboxes
