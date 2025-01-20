@@ -1,9 +1,10 @@
 import pymunk
 import pygame
 import gymnasium as gym
-import random
+import numpy as np
 import sys
 from pymunk.pygame_util import DrawOptions
+from enum import Enum
 
 width = 600
 height = 600
@@ -110,7 +111,7 @@ class Ground:
         space.add(self.shape, self.body)
 
 class Cube:
-    def __init__(self, position, space, mass, collision_type, width=50, height=10):
+    def __init__(self, position, space, mass, collision_type, width=50, height=10, health=0):
         self.mass = mass
         self.width = width
         self.height = height
@@ -124,9 +125,21 @@ class Cube:
         self.shape.body.position = position
         space.add(self.shape, self.body)
 
+        # Health
+        self.health = health
+
+    def update_health(self, new_health: float):
+        self.health += int(new_health)
+
     def get_bounding_box(self) -> pymunk.Shape.cache_bb:
         return self.shape.cache_bb()
     
+# TODO: FINITE STATE MACHINE
+class State(Enum):
+    STANDING = 1
+    JUMPING = 2
+    ATTACKING = 3
+
 class Hitbox: 
     '''
     This class adds and renders a Hitbox to the game space.
@@ -163,7 +176,8 @@ class HitboxHandler:
 
             # Check for overlap between a pygame.rect and pymunk bb
             if game_obj_hitbox.colliderect(agent_bb.left, agent_bb.bottom, agent_bb.right - agent_bb.left, agent_bb.top - agent_bb.bottom):
-                print('hit')
+                print("hit")
+                agent.update_health(3) # Take damage
                 return True 
 
             return False
@@ -184,22 +198,96 @@ class Hurtbox:
 
         # Check for overlap
         return bb1.intersects(bb2)
+    
+
+# UI & GAME LOGIC
+class UI:
+    def __init__(self, screen: pygame.display, agent_1: Cube, agent_2: Cube):
+        self.screen = screen
+        self.agent_1 = agent_1
+        self.agent_2 = agent_2
+
+    def display_UI(self):
+        self.display_agent_healths()
+        self.display_percentages()
+
+    def display_agent_healths(self):
+        # Left health UI
+        points_left = np.array([(100, 100), (180, 80), (200, 160), (120, 180)])#topleft, topright, bottomright, bottomleft
+        RED = (255, 0, 0)
+        ORANGE = (255, 140, 0)
+        BLUE = (0, 0, 255)
+        GRAY = (128, 128, 128)
+        WHITE = (255, 255, 255)
+
+        # Tilted cube
+        pygame.draw.polygon(self.screen, ORANGE, points_left-50) 
+
+        # Agent name + textbox
+        pygame.draw.rect(self.screen, GRAY, (points_left[0][0], points_left[0][1], 64*2, 20), 0) 
+        self.draw_eye(points_left[0][0]-25, points_left[0][1]-30) # Left eye
+        self.draw_eye(points_left[0][0]+17.5, points_left[0][1]-40) # Right eye
+        font = pygame.font.Font(None, 19)
+        # render text:
+        text_surface = font.render("Agent 1", True, WHITE)
+        text_rect = text_surface.get_rect(center=pygame.Rect(points_left[0][0], points_left[0][1], 128, 20).center)
+        self.screen.blit(text_surface, text_rect)
+
+        # Right health UI:
+        points_right: np.ndarray = points_left
+        for i in range(len(points_left)):
+            points_right[i][0] += 300
+
+        # Tilted cube
+        pygame.draw.polygon(self.screen, BLUE, points_right-50) 
+
+        # Agent name + textbox
+        pygame.draw.rect(self.screen, GRAY, (points_right[0][0], points_right[0][1], 64*2, 20), 0) 
+        self.draw_eye(points_right[0][0]-25, points_right[0][1]-30) # Left eye
+        self.draw_eye(points_right[0][0]+17.5, points_right[0][1]-40) # Right eye
+        font = pygame.font.Font(None, 19)
+        # render text:
+        text_surface = font.render("Agent 2", True, WHITE)
+        text_rect = text_surface.get_rect(center=pygame.Rect(points_right[0][0], points_right[0][1], 128, 20).center)
+        self.screen.blit(text_surface, text_rect)
+
+    # Percentages (like SSBU)
+    def display_percentages(self):
+        WHITE = (255, 255, 255)
+        RED = (255, 0, 0)
+        YELLOW = (255, 255, 0)
+        DARK_RED = (139, 0, 0)
+
+        # Construct a list of agents
+        agents = np.array([self.agent_1, self.agent_2])
+
+        # Agent percentage text
+        font = pygame.font.Font(None, 55)
+        # render text & text colours:
+        for i in range(len(agents)):
+            COLOUR = WHITE
+            if 30 < agents[i].health < 70:
+                COLOUR = YELLOW 
+            elif 70 <= agents[i].health < 110: 
+                COLOUR = RED
+            elif agents[i].health >= 110:
+                COLOUR = DARK_RED
+
+            text_surface = font.render(f'{agents[i].health}.0%', True, COLOUR)
+            text_rect = text_surface.get_rect(center=pygame.Rect(160+i*300, 50, 64, 50).center)
+            self.screen.blit(text_surface, text_rect)
+
+    def draw_eye(self, x, y):
+        WHITE = (255, 255, 255)
+        BLACK = (0, 0, 0)
+
+        # Draw the white circle (outer part of the eye)
+        pygame.draw.circle(self.screen, WHITE, (x, y), 10)
+        pygame.draw.circle(self.screen, BLACK, (x, y), 5)
 
 def collide(arbiter, space, data):
     # print("Collision detected!")
     return True
-
-# def hitbox(entity1: Ball, entity2: Ball):
-#     if entity1.shape.body.position.x <= entity2.shape.body.position.x and entity1.shape.body.position.y <= entity2.shape.body.position.y <= entity1.shape.body.position.y + entity1.height:
-#         if entity1.shape.body.position.x < entity2.shape.body.position.x and \
-#             entity1.shape.body.position.x + entity1.width > entity2.shape.body.position.x:
-#             print("Entity1 hit by Entity2 on the LEFT")
-#             return True
-#         elif entity2.shape.body.position.x < entity1.shape.body.position.x and \
-#               entity2.shape.body.position.x + entity2.width > entity1.shape.body.position.x:
-#             print("Entity1 hit by Entity2 on the RIGHT")
-#             return True
-#     return False
 
 def display_video(width: int, height: int):
     import cv2
@@ -252,6 +340,8 @@ def main():
     collision_handler.begin = collide
     frame_count = 0
 
+    ui = UI(screen=screen, agent_1=ball, agent_2=ball2)
+
     # Define the y-coordinate threshold for quitting
     quit_y_threshold = 575
 
@@ -292,6 +382,9 @@ def main():
 
         # Check if the GameObject hits Agent
         hitbox_handler.object_hits_agent(game_obj=sword, agent=ball2)
+
+        # Render health UI
+        ui.display_UI()
 
         # Draw the red line
         pygame.draw.line(screen, (255, 0, 0), (0, quit_y_threshold), (width, quit_y_threshold), 2)
