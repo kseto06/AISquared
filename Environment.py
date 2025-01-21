@@ -9,6 +9,23 @@ from enum import Enum
 width = 600
 height = 600
 
+# Custom draw/rendering options for Pymunk objects
+class CustomDrawOptions(DrawOptions):
+    def __init__(self, screen):
+        super().__init__(screen)
+
+    def draw_circle(self, pos, angle, radius, outline_color=(0,0,0), fill_color=(255,255,255)):
+        '''
+        Custom draw options for Pymunk circle
+        '''
+        super().draw_circle(pos, angle, radius, outline_color, fill_color)
+
+    def draw_circle(self, verts, radius, outline_color=(0,0,0), fill_color=(255,255,255)):
+        '''
+        Custom draw options for Pymunk polygon
+        '''
+        super().draw_polygon(verts, radius, outline_color, fill_color)
+
 class GameObject:
     # ACTUAL IMAGE RENDERING: 
     def __init__(self, x: int, y: int, dir_name: str, screen: pygame.display):
@@ -103,7 +120,7 @@ class Ball:
         space.add(self.shape, self.body, leg1, leg2)
 
 class Ground:
-    def __init__(self, space, x, y, width_ground):
+    def __init__(self, space: pymunk.Space, x: int, y: int, width_ground: int):
         self.body = pymunk.Body(x, y, body_type=pymunk.Body.STATIC)
         self.shape = pymunk.Poly.create_box(self.body, (width_ground, 10))
         self.shape.body.position = (x + width_ground // 2, y)
@@ -111,19 +128,39 @@ class Ground:
         space.add(self.shape, self.body)
 
 class Cube:
-    def __init__(self, position, space, mass, collision_type, width=50, height=10, health=0):
+    def __init__(self, position: pymunk.Vec2d, space: pymunk.Space, mass: float, collision_type: int, screen: pygame.display, cube_color: tuple[int, int, int, int], width=50, height=10, health=0):
         self.mass = mass
         self.width = width
         self.height = height
 
+        # Draw the cube/square shape
         self.shape = pymunk.Poly.create_box(None, size=(width, height))
         self.moment = pymunk.moment_for_poly(self.mass, self.shape.get_vertices())
         self.body = pymunk.Body(self.mass, self.moment)
         self.shape.body = self.body
-        
+
         self.shape.collision_type = collision_type
         self.shape.body.position = position
         space.add(self.shape, self.body)
+
+        # Add eyes using Pymunk circles (to prevent obstruction):
+        self.left_eye = pymunk.Circle(self.body, radius=8, offset=(-width // 4, -height // 5))
+        self.right_eye = pymunk.Circle(self.body, radius=8, offset=(width // 4, -height // 5))
+        self.left_pupil = pymunk.Circle(self.body, radius=4, offset=(-width // 4, -height // 5))
+        self.right_pupil = pymunk.Circle(self.body, radius=4, offset=(width // 4, -height // 5))
+        
+        # Make eyes non-colliding
+        self.left_eye.filter = pymunk.ShapeFilter(categories=0)
+        self.right_eye.filter = pymunk.ShapeFilter(categories=0)
+    
+        # Add eyes to the space
+        space.add(self.left_eye, self.right_eye, self.left_pupil, self.right_pupil)
+
+        self.shape.color = cube_color
+        self.left_eye.color = (255, 255, 255, 255)  
+        self.left_pupil.color = (0, 0, 0, 255)
+        self.right_eye.color = (255, 255, 255, 255)
+        self.right_pupil.color = (0, 0, 0, 255)
 
         # Health
         self.health = health
@@ -133,7 +170,7 @@ class Cube:
 
     def get_bounding_box(self) -> pymunk.Shape.cache_bb:
         return self.shape.cache_bb()
-    
+
 # TODO: FINITE STATE MACHINE
 class State(Enum):
     STANDING = 1
@@ -206,6 +243,8 @@ class UI:
         self.screen = screen
         self.agent_1 = agent_1
         self.agent_2 = agent_2
+        # Construct a list of agents
+        self.agents = np.array([self.agent_1, self.agent_2])
 
     def display_UI(self):
         self.display_agent_healths()
@@ -225,8 +264,8 @@ class UI:
 
         # Agent name + textbox
         pygame.draw.rect(self.screen, GRAY, (points_left[0][0], points_left[0][1], 64*2, 20), 0) 
-        self.draw_eye(points_left[0][0]-25, points_left[0][1]-30) # Left eye
-        self.draw_eye(points_left[0][0]+17.5, points_left[0][1]-40) # Right eye
+        self.draw_eyes(points_left[0][0]-25, points_left[0][1]-30, 10) # Left eye
+        self.draw_eyes(points_left[0][0]+17.5, points_left[0][1]-40, 10) # Right eye
         font = pygame.font.Font(None, 19)
         # render text:
         text_surface = font.render("Agent 1", True, WHITE)
@@ -243,8 +282,8 @@ class UI:
 
         # Agent name + textbox
         pygame.draw.rect(self.screen, GRAY, (points_right[0][0], points_right[0][1], 64*2, 20), 0) 
-        self.draw_eye(points_right[0][0]-25, points_right[0][1]-30) # Left eye
-        self.draw_eye(points_right[0][0]+17.5, points_right[0][1]-40) # Right eye
+        self.draw_eyes(points_right[0][0]-25, points_right[0][1]-30, 10) # Left eye
+        self.draw_eyes(points_right[0][0]+17.5, points_right[0][1]-40, 10) # Right eye
         font = pygame.font.Font(None, 19)
         # render text:
         text_surface = font.render("Agent 2", True, WHITE)
@@ -258,32 +297,32 @@ class UI:
         YELLOW = (255, 255, 0)
         DARK_RED = (139, 0, 0)
 
-        # Construct a list of agents
-        agents = np.array([self.agent_1, self.agent_2])
-
         # Agent percentage text
         font = pygame.font.Font(None, 55)
         # render text & text colours:
-        for i in range(len(agents)):
+        for i in range(len(self.agents)):
             COLOUR = WHITE
-            if 30 < agents[i].health < 70:
+            if 30 < self.agents[i].health < 70:
                 COLOUR = YELLOW 
-            elif 70 <= agents[i].health < 110: 
+            elif 70 <= self.agents[i].health < 110: 
                 COLOUR = RED
-            elif agents[i].health >= 110:
+            elif self.agents[i].health >= 110:
                 COLOUR = DARK_RED
 
-            text_surface = font.render(f'{agents[i].health}.0%', True, COLOUR)
+            text_surface = font.render(f'{self.agents[i].health}.0%', True, COLOUR)
             text_rect = text_surface.get_rect(center=pygame.Rect(160+i*300, 50, 64, 50).center)
             self.screen.blit(text_surface, text_rect)
 
-    def draw_eye(self, x, y):
+    def draw_eyes(self, x: float, y: float, radius: int):
+        '''
+        This function draws eyes
+        '''
         WHITE = (255, 255, 255)
         BLACK = (0, 0, 0)
 
         # Draw the white circle (outer part of the eye)
-        pygame.draw.circle(self.screen, WHITE, (x, y), 10)
-        pygame.draw.circle(self.screen, BLACK, (x, y), 5)
+        pygame.draw.circle(self.screen, WHITE, (x, y), radius)
+        pygame.draw.circle(self.screen, BLACK, (x, y), radius//2)
 
 def collide(arbiter, space, data):
     # print("Collision detected!")
@@ -326,21 +365,19 @@ def main():
     platform1 = Ground(space, 125, 400, 125)  # First platform
     platform2 = Ground(space, 350, 400, 125)  # Second platform with a gap
 
-    # ball = Ball((150, 200), space, 200, 1)
-    # ball2 = Ball((450, 100), space, 200, 1)
-
-    ball = Cube((150, 100), space, 4, 1, width=50, height=50)
+    ball = Cube((150, 100), space, 4, 1, screen, cube_color=(255, 140, 0, 255), width=50, height=50)
     sword = Sword(150, 100, "./assets/sword.png", screen)
 
-    ball2 = Cube((450, 100), space, 3, 2, width=50, height=50)
+    ball2 = Cube((450, 100), space, 3, 2, screen, cube_color=(0, 0, 255, 255), width=50, height=50)
     hurtbox = Hurtbox()
+
+    # Display initial UI
+    ui = UI(screen=screen, agent_1=ball, agent_2=ball2)
 
     hitbox_handler = HitboxHandler(screen)
     collision_handler = space.add_collision_handler(1, 2)
     collision_handler.begin = collide
     frame_count = 0
-
-    ui = UI(screen=screen, agent_1=ball, agent_2=ball2)
 
     # Define the y-coordinate threshold for quitting
     quit_y_threshold = 575
@@ -391,7 +428,7 @@ def main():
 
         space.debug_draw(draw_options)
         space.step(1/50.0)
-        pygame.display.update()
+        pygame.display.flip() # pygame.display.update()
         clock.tick(50)
         # pygame.image.save(screen, f"frames/frame_{frame_count:04d}.png")
         frame_count += 1
