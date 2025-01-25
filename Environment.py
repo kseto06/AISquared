@@ -277,7 +277,7 @@ class GroundState(PlayerState):
         else:
             return StandingState()
         
-    def physics_process(self, player: Cube, delta: float):
+    def physics_process(self, player: Cube, delta: float) -> Union[PlayerState, None]:
         if player.direction:
             player.body.velocity = pymunk.Vec2d(player.direction * player.move_speed, player.body.velocity.y)
             #Physics already handled by Pymunk?
@@ -338,7 +338,7 @@ class WalkingState(GroundState):
     def get_state_name(self) -> str:
         return "WalkingState"
     
-    def physics_process(self, player: Cube, delta: float):
+    def physics_process(self, player: Cube, delta: float) -> PlayerState:
         new_state: PlayerState = super().physics_process(player, delta)
         
         if player.direction or new_state:
@@ -544,19 +544,19 @@ def main():
 
     space = pymunk.Space()
     space.gravity = 0, 200.0
-    ground = Ground(space, 50, 500, 500)
-
+    
     # Modify the placement of the platforms
+    ground = Ground(space, 50, 500, 500)
     platform1 = Ground(space, 125, 400, 125)  # First platform
     platform2 = Ground(space, 350, 400, 125)  # Second platform with a gap
 
     state1: PlayerState = InAirState()
     state2: PlayerState = InAirState()
 
-    ball = Cube((150, 100), space, 4, 1, screen, cube_color=(255, 140, 0, 255), state=state1, platforms=[platform1, platform2], width=50, height=50)
+    ball = Cube((150, 100), space, 4, 1, screen, cube_color=(255, 140, 0, 255), state=state1, platforms=[ground, platform1, platform2], width=50, height=50)
     sword = Sword(150, 100, "./assets/sword.png", screen)
 
-    ball2 = Cube((450, 100), space, 3, 2, screen, cube_color=(0, 0, 255, 255), state=state2, platforms=[platform1, platform2], width=50, height=50)
+    ball2 = Cube((450, 100), space, 3, 2, screen, cube_color=(0, 0, 255, 255), state=state2, platforms=[ground, platform1, platform2], width=50, height=50)
     hurtbox = Hurtbox()
 
     # Display initial UI
