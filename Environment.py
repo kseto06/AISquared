@@ -5,9 +5,12 @@ import numpy as np
 import sys
 from pymunk.pygame_util import DrawOptions
 from enum import Enum
+from typing import Union
 
 width = 600
 height = 600
+
+DELTA = 1/50.0
 
 # Custom draw/rendering options for Pymunk objects
 class CustomDrawOptions(DrawOptions):
@@ -124,11 +127,11 @@ class Ground:
         self.body = pymunk.Body(x, y, body_type=pymunk.Body.STATIC)
         self.shape = pymunk.Poly.create_box(self.body, (width_ground, 10))
         self.shape.body.position = (x + width_ground // 2, y)
-        self.shape.friction = 0.7
+        self.shape.friction = 0.8
         space.add(self.shape, self.body)
 
 class Cube:
-    def __init__(self, position: pymunk.Vec2d, space: pymunk.Space, mass: float, collision_type: int, screen: pygame.display, cube_color: tuple[int, int, int, int], width=50, height=10, health=0):
+    def __init__(self, position: pymunk.Vec2d, space: pymunk.Space, mass: float, collision_type: int, screen: pygame.display, cube_color: tuple[int, int, int, int], state, platforms: list[Ground, Ground], width=50, height=10, health=0):
         self.mass = mass
         self.width = width
         self.height = height
@@ -165,17 +168,198 @@ class Cube:
         # Health
         self.health = health
 
+        # Movement
+        self.direction = 0
+        self.move_speed = 50 #On the x
+        self.jump_speed = 50
+
+        # Start state = InAirState
+        self.state = state
+
+        # Platforms
+        self.platforms = platforms
+
+    def set_direction(self) -> int:
+        '''
+        Set the direction of an object [-1, 0, 1]; moving left, stationary, right
+        '''
+        # self.body.velocity = pymunk.Vec2d(self.body.velocity.x * dir, self.body.velocity.y)
+        if self.body.velocity.x > 0:
+            self.direction = 1
+        elif self.body.velocity.x < 0:
+            self.direction = -1
+        else:
+            self.direction = 0 #Stationary
+
+    # def get_direction(self) -> int:
+    #     if self.body.velocity.x > 0:
+    #         return 1 #Right
+    #     elif self.body.velocity.x < 0:
+    #         return -1 #Left
+    #     else:
+    #         return 0 #Stationary
+        
     def update_health(self, new_health: float):
         self.health += int(new_health)
 
     def get_bounding_box(self) -> pymunk.Shape.cache_bb:
         return self.shape.cache_bb()
 
-# TODO: FINITE STATE MACHINE
+    def is_on_floor(self):
+        for platform in self.platforms:
+            # Check if object is touching a platform
+            if self.shape.cache_bb().intersects(platform.shape.cache_bb()):
+                return True
+        
+        return False        
+    
+    def _physics_process(self, delta: float) -> None:
+        new_state: PlayerState = self.state.physics_process(self, delta)
+
+        if new_state != None:
+            self.state.exit(self)
+            print(self.state.get_state_name(), " -> ", new_state.get_state_name())
+            self.state = new_state
+            self.state.enter(self)
+        
+        # if self.state.action == 'light_attack':
+        #     side_slash.start_cast()
+
+        # move_and_slide()
+
+# FINITE STATE MACHINE
 class State(Enum):
     STANDING = 1
     JUMPING = 2
     ATTACKING = 3
+
+class PlayerState:
+    def __init__(self, action = None):
+        self.action = action
+
+    def get_state_name(self) -> str:
+        return "PlayerState"
+    
+    def enter(self, player):
+        pass
+
+    def physics_process(self, player, delta): 
+        return None
+    
+    def exit(self, player):
+        pass
+
+    def animate_player(self, player):
+        pass
+
+    def on_hurtbox_damaged(self, player):
+        pass
+    
+    def set_new_action(self, action: str = None): 
+        self.action = action
+
+    def check_current_action(self) -> Union[str, None]:
+        if self.action == 'jump':
+            return 'jump'
+        elif self.action == 'attack':
+            return 'attack'
+        else:
+            return None
+        
+class GroundState(PlayerState):
+    def get_state_name(self) -> str:
+        return "GroundState"
+
+    @staticmethod
+    def get_ground_state(player: Cube) -> PlayerState:
+        if player.direction:
+            return WalkingState()
+        else:
+            return StandingState()
+        
+    def physics_process(self, player: Cube, delta: float):
+        if player.direction:
+            player.body.velocity = pymunk.Vec2d(player.direction * player.move_speed, player.body.velocity.y)
+            #Physics already handled by Pymunk?
+        else:
+            # p.velocity.x = move_toward(p.velocity.x, 0, p.pop.move_speed)
+            player.shape.friction = 0.01
+
+        # Handling jump
+        if self.check_current_action() == 'jump' and player.is_on_floor():
+            player.body.velocity = pymunk.Vec2d(player.body.velocity.x, player.jump_speed)
+            return InAirState()
+        elif not player.is_on_floor():
+            return InAirState()
+        else:
+            return None
+            
+class InAirState(PlayerState):
+    def get_state_name(self) -> str:
+        return "InAirState"
+    
+    def physics_process(self, player: Cube, delta: float) -> PlayerState:
+        # gravity setting here
+        if player.direction:
+            player.body.velocity = pymunk.Vec2d(player.direction * player.move_speed, player.body.velocity.y)
+        else:
+            player.shape.friction = 0.01
+
+        if player.is_on_floor():
+            return GroundState.get_ground_state(player)
+        else:
+            return None
+            
+    def animate_player(self, player):
+        pass #Jump should be handled by Pymunk
+
+class HurtState(InAirState):
+    def get_state_name(self) -> str:
+        return "HurtState"
+    
+    def enter(player: Cube) -> None:
+        player.body.velocity = pymunk.Vec2d(player.body.velocity.x, player.jump_speed)
+
+    def physics_process(self, player: Cube, delta: float) -> PlayerState:
+        if player.direction:
+            player.body.velocity = pymunk.Vec2d(player.direction * player.move_speed, player.body.velocity.y)
+        else:
+            player.shape.friction = 0.01
+
+        if player.is_on_floor():
+            return GroundState.get_ground_state(player)
+        else:
+            return None
+    
+    def animate_player(self, player: Cube):
+        pass
+
+class WalkingState(GroundState):
+    def get_state_name(self) -> str:
+        return "WalkingState"
+    
+    def physics_process(self, player: Cube, delta: float):
+        new_state: PlayerState = super().physics_process(player, delta)
+        
+        if player.direction or new_state:
+            return new_state
+        else:
+            return StandingState()
+
+class StandingState(GroundState):
+    def get_state_name(self) -> str:
+        return "StandingState"
+    
+    def physics_process(self, player: Cube, delta: float) -> PlayerState:
+        new_state: PlayerState = super().physics_process(player, delta)
+
+        if not player.direction or new_state:
+            return new_state
+        else:
+            return WalkingState()
+        
+    def animate_player(self, player):
+        pass
 
 class Hitbox: 
     '''
@@ -324,6 +508,7 @@ class UI:
         pygame.draw.circle(self.screen, WHITE, (x, y), radius)
         pygame.draw.circle(self.screen, BLACK, (x, y), radius//2)
 
+
 def collide(arbiter, space, data):
     # print("Collision detected!")
     return True
@@ -365,10 +550,13 @@ def main():
     platform1 = Ground(space, 125, 400, 125)  # First platform
     platform2 = Ground(space, 350, 400, 125)  # Second platform with a gap
 
-    ball = Cube((150, 100), space, 4, 1, screen, cube_color=(255, 140, 0, 255), width=50, height=50)
+    state1: PlayerState = InAirState()
+    state2: PlayerState = InAirState()
+
+    ball = Cube((150, 100), space, 4, 1, screen, cube_color=(255, 140, 0, 255), state=state1, platforms=[platform1, platform2], width=50, height=50)
     sword = Sword(150, 100, "./assets/sword.png", screen)
 
-    ball2 = Cube((450, 100), space, 3, 2, screen, cube_color=(0, 0, 255, 255), width=50, height=50)
+    ball2 = Cube((450, 100), space, 3, 2, screen, cube_color=(0, 0, 255, 255), state=state2, platforms=[platform1, platform2], width=50, height=50)
     hurtbox = Hurtbox()
 
     # Display initial UI
@@ -401,7 +589,14 @@ def main():
         hurtbox.hurtbox(ball, ball2)
 
         # Continuously move the balls toward each other
-        apply_force_toward_each_other(ball, ball2, 50)
+        # apply_force_toward_each_other(ball, ball2, 50)
+
+        # Watch for FSM and physics_processes
+        # print(ball.body.velocity, " ", ball2.body.velocity)
+        ball.direction = 1
+        ball2.direction = -1
+        ball._physics_process(DELTA)
+        ball2._physics_process(DELTA)
 
         # Quit if any ball goes below the threshold
         if ball.shape.body.position.y > quit_y_threshold or ball2.shape.body.position.y > quit_y_threshold:
@@ -427,7 +622,7 @@ def main():
         pygame.draw.line(screen, (255, 0, 0), (0, quit_y_threshold), (width, quit_y_threshold), 2)
 
         space.debug_draw(draw_options)
-        space.step(1/50.0)
+        space.step(DELTA)
         pygame.display.flip() # pygame.display.update()
         clock.tick(50)
         # pygame.image.save(screen, f"frames/frame_{frame_count:04d}.png")
