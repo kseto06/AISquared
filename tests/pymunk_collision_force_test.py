@@ -182,8 +182,7 @@ def main():
         space.step(1/50.0)
         pygame.display.update()
         clock.tick(50)
-        # print(ball.shape.body.velocity)
-
+        # print(ball.shape.body.velocity)E
 
 if __name__ == '__main__':
     sys.exit(main())
