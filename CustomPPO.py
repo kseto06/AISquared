@@ -1,51 +1,20 @@
-# import gymnasium as gym
-# import numpy as np
-
-# class CustomEnv(gym.Env):
-#     """Custom Environment that follows gym interface."""
-
-#     metadata = {"render_modes": ["human"], "render_fps": 30}
-
-#     def __init__(self, arg1, arg2):
-#         pass
-
-#         super().__init__()
-#         # Define action and observation space
-#         # They must be gym.spaces objects
-#         # Example when using discrete actions:
-#         self.action_space = gym.spaces.Discrete(N_DISCRETE_ACTIONS)
-#         # Example for using image as input (channel-first; channel-last also works):
-#         self.observation_space = gym.spaces.Box(low=0, high=255,
-#                                             shape=(N_CHANNELS, HEIGHT, WIDTH), dtype=np.uint8)
-
-#     def step(self, action):
-#         pass
-#         return observation, reward, terminated, truncated, info
-
-#     def reset(self, seed=None, options=None):
-#         pass
-#         return observation, info
-
-#     def render(self):
-#         pass
-
-#     def close(self):
-#         pass
-
-
 import gymnasium as gym
 import numpy as np
 import torch
 import torch.nn as nn
+# from pettingzoo.butterfly import cooperative_pong_v5
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.policies import ActorCriticPolicy
 from stable_baselines3 import PPO
+from stable_baselines3.common.vec_env import VecEnv, DummyVecEnv
+from stable_baselines3.common.env_util import make_vec_env
 
 class MultiAgentPPO(gym.Env):
     '''
     Define the class for the custom multi-agent PPO 
     Use LSTM + PPO NN for self-play
     '''
+    
     pass
 
 class CustomNN(BaseFeaturesExtractor):
@@ -56,9 +25,9 @@ class CustomNN(BaseFeaturesExtractor):
         self.LSTM = nn.LSTM(input_size=obs_space.shape[0], hidden_size=512, num_layers=1, batch_first=True)
         self.hidden_1 = nn.Linear(in_features=512, out_features=128)
         self.relu = nn.ReLU()
-        self.hidden_2 = nn.Linear(in_features=128, out_features=32)
+        self.hidden_2 = nn.Linear(in_features=128, out_features=64)
         # ReLU here
-        self.output = nn.Linear(in_features=32, out_features=features_dim)        
+        self.output = nn.Linear(in_features=64, out_features=features_dim)        
     
     def forward(self, observations: torch.Tensor) -> torch.Tensor:
         x = self.input(observations)
@@ -79,13 +48,66 @@ class CustomPolicy(ActorCriticPolicy):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs,
                             features_extractor_class=CustomNN,
-                            features_extractor_kwargs=dict(features_dim=128))
+                            features_extractor_kwargs=dict(features_dim=64)) #Default features_dim for MlpPolicy is 64
+
+# class PettingZooGymWrapper(gym.Env):
+#     def __init__(self, env):
+#         super(PettingZooGymWrapper, self).__init__()
+#         self.env = env
+#         self.agents = env.agents
+#         self.current_agent = None
+        
+#         # Define action and observation space
+#         self.action_space = gym.spaces.Discrete(env.action_space(self.agents[0]).n)  # Assuming discrete action space
+#         self.observation_space = gym.spaces.Box(low=-float('inf'), high=float('inf'), shape=(env.observation_space(self.agents[0]).shape,), dtype=float)
+
+#     def reset(self, seed=None, options=None):
+#         self.env.reset()
+#         self.current_agent = self.env.agents[0]  # Start with the first agent
+#         obs = self.env.observe(self.current_agent)
+#         return obs, {}
+
+#     def step(self, action):
+#         self.env.step(action)
+#         self.current_agent = self.env.agent_next()
+#         obs = self.env.observe(self.current_agent)
+#         reward = self.env.rewards[self.current_agent]
+#         done = self.env.dones[self.current_agent]
+#         truncated = self.env.truncations[self.current_agent]
+#         return obs, reward, done, truncated, {}
+
+#     def render(self):
+#         self.env.render()
+
+#     def close(self):
+#         self.env.close()
 
 if __name__ == '__main__':
-    env = gym.make("CartPole-v1")
+    env = gym.make("LunarLander-v3")
 
     model = PPO(policy=CustomPolicy, env=env, verbose=1)
-    model.learn(total_timesteps=10000)
+    model.learn(total_timesteps=100000)
+
+    # env = cooperative_pong_v5.env(render_mode="human")
+    # env.reset(seed=42) 
+    # env = PettingZooGymWrapper(env)
+    
+    # env = gym.vector.make(lambda: env, num_envs=1)
+    # env = DummyVecEnv([lambda: env])
+
+    # agents = ['agent1', 'agent2']
+    # models = {agent: PPO(policy=CustomPolicy, env=env, verbose=1) for agent in agents}
+
+    # for agent, model in models.items():
+    #     model.learn(total_timesteps=100000)
+
+    obs = env.reset()
+    done = False
+    while not done:
+        actions, states = model.predict(obs, deterministic=True)
+        obs, rewards, dones, info = env.step(actions)
+        env.render()
+        done = any(dones)
     
 
 
