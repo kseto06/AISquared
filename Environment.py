@@ -41,6 +41,10 @@ class GameObject:
         self.image_y = (y + self.image_height//1.5) #Centered
         self.screen = screen
 
+    def get_object_name(self):
+        # print(self.__class__.__name__)
+        return self.__class__.__name__
+
     def update_pos(self, x: int, y: int):
         self.x = x
         self.y = y
@@ -57,6 +61,55 @@ class GameObject:
 
     def draw_object(self):
         self.screen.blit(self.image, (self.image_x, self.image_y))
+
+class Move:
+    # A move manages powers and transitions between them.
+    def __init__(self, initial_power, player, opponent):
+        self.initial_power = initial_power
+        self.current_power = self.initial_power
+        self.player = player
+        self.opponent = opponent
+        self.active = False
+
+    def execute(self, game_obj: GameObject, hitbox_handler):
+        if self.active == True and self.current_power:
+            self.current_power.execute(game_obj)
+            hit_occurred = hitbox_handler.object_hits_agent(game_obj=game_obj, attacking_agent=self.player, attacked_agent=self.opponent)
+            if self.current_power.is_finished():
+                self.current_power.frame_count = 0
+                self.current_power = self.current_power.transition(hit_occurred)
+
+        else:
+            self.active = False
+            self.current_power = self.initial_power
+    
+class Power:
+    def __init__(self, duration, player, opponent, power_script="", on_hit_power=None, on_miss_power=None):
+        self.duration = duration # duration is in frames (as well)
+        self.frame_count = 0
+
+        self.player = player
+        self.opponent = opponent
+
+        self.power_script = power_script
+
+        self.on_hit_power = on_hit_power  # Power to transition to on hit
+        self.on_miss_power = on_miss_power  # Power to transition to on miss   
+
+    def update_frame_count(self):
+        self.frame_count += 1
+
+    def execute(self, game_obj):
+        exec(self.power_script)
+        self.update_frame_count()
+
+    def is_finished(self):
+       # Check if all casts in the power have completed.
+        return self.frame_count > self.duration
+
+    def transition(self, hit_occurred):
+        # Determine which power to transition to based on hit or miss.
+        return self.on_hit_power if hit_occurred else self.on_miss_power
 
 class Sword(GameObject):
     '''
@@ -100,7 +153,71 @@ class Throw(GameObject):
     pass
 
 class Hammer(GameObject):
-    pass
+    """
+    Hammer (png) object. Extends GameObject.
+    """
+
+    def __init__(self, x: int, y: int, dir_name: str, screen, player, opponent):
+        super().__init__(x, y, dir_name, screen)
+        self.x = x
+        self.y = y
+        self.player = player
+        self.opponent = opponent
+        self.cool_down_count = 0
+
+        on_hit_power = Power(10,self.player,self.opponent,"""game_obj.y -= 5
+game_obj.image_x = (game_obj.x + game_obj.image_width//2) - 10
+game_obj.image_y = (game_obj.y + game_obj.image_height//2) - 10#Centered
+kick_impulse = (0, -150)  # Negative Y for an upward kick
+self.opponent.body.apply_impulse_at_world_point(kick_impulse, self.opponent.body.position)  # Center of the ball
+        """)
+        on_miss_power = Power(10,self.player,self.opponent,"""game_obj.y -= 5
+game_obj.image_x = (game_obj.x + game_obj.image_width//2) - 10
+game_obj.image_y = (game_obj.y + game_obj.image_height//2) - 10#Centered    
+        """)
+        initial_power = Power(
+            10, self.player, self.opponent,
+            power_script="""game_obj.y += 5
+game_obj.image_x = (game_obj.x + game_obj.image_width//2) - 10
+game_obj.image_y = (game_obj.y + game_obj.image_height//2) - 10#Centered
+        """,
+            on_hit_power=on_hit_power,
+            on_miss_power=on_miss_power
+        )
+
+        self.smash_attack = Move(initial_power, self.player, self.opponent)
+       
+
+    def construct_hitboxes(self):
+        self.hitboxes = [] #martin edited
+        self.add_hitbox(
+            self.image_x , self.image_y + self.image_height/2 - 5/2,  # Top-left corner
+            self.image_width-15,  # Width
+            5 # Height
+        )
+
+        self.add_hitbox(
+            self.image_x + (self.image_width-15), self.image_y ,  # Top-left corner
+            15,  # Width
+            self.image_height # Height
+        )
+        
+    def update_hitbox_pos(self, x, y):
+        self.x = x
+        self.y = y
+        self.construct_hitboxes()
+        # Add hammer handle hitbox
+       # self.hitboxes.append(Hitbox(self.x, self.y, self.image_width+10, self.image_height, self.screen))
+       
+    """
+withint the hammer class
+on_hit_power = Power(10,"")
+on_miss_power = Power(10,"")
+initial_power = Power(10,"",on_hit_power, on_miss_power)
+
+"""
+
+    # TODO: Add specific hammer attack logic
 
 '''
 TODO: Add more object/action classes here as needed
@@ -179,6 +296,13 @@ class Cube:
         # Platforms
         self.platforms = platforms
 
+        # GameObjects (weapons & attacks)
+        self.attacks: list[Union[GameObject, None]] = [None, None, None]
+        self.action = None
+
+        # Store Cube in the body's user_data
+        self.body.user_data = self
+
     def set_direction(self) -> int:
         '''
         Set the direction of an object [-1, 0, 1]; moving left, stationary, right
@@ -205,7 +329,7 @@ class Cube:
     def get_bounding_box(self) -> pymunk.Shape.cache_bb:
         return self.shape.cache_bb()
 
-    def is_on_floor(self):
+    def is_on_floor(self) -> bool:
         for platform in self.platforms:
             # Check if object is touching a platform
             if self.shape.cache_bb().intersects(platform.shape.cache_bb()):
@@ -213,12 +337,16 @@ class Cube:
         
         return False        
     
+    def check_current_action(self) -> str:
+        return self.action
+    
     def _physics_process(self, delta: float) -> None:
         new_state: PlayerState = self.state.physics_process(self, delta)
 
         if new_state != None:
             self.state.exit(self)
             print(self.state.get_state_name(), " -> ", new_state.get_state_name())
+            print(self.check_current_action())
             self.state = new_state
             self.state.enter(self)
         
@@ -236,6 +364,9 @@ class State(Enum):
 class PlayerState:
     def __init__(self, action = None):
         self.action = action
+        self.attacks: dict[str, float] = dict() #{attack, attack_duration(s)}
+        self.attacks["sword"] = 500/50
+        self.attacks["hammer"] = 50/50
 
     def get_state_name(self) -> str:
         return "PlayerState"
@@ -261,8 +392,12 @@ class PlayerState:
     def check_current_action(self) -> Union[str, None]:
         if self.action == 'jump':
             return 'jump'
-        elif self.action == 'attack':
-            return 'attack'
+        elif self.action == 'sword':
+            return 'sword'
+        elif self.action == 'hammer':
+            return 'hammer'
+        elif self.action == 'damaged':
+            return 'damaged'
         else:
             return None
         
@@ -285,12 +420,18 @@ class GroundState(PlayerState):
             # p.velocity.x = move_toward(p.velocity.x, 0, p.pop.move_speed)
             player.shape.friction = 0.01
 
+        # Attack:
+        if self.check_current_action() is not None and self.check_current_action() != 'jump': #Check for attack 
+            return AttackingState()
+
         # Handling jump
         if self.check_current_action() == 'jump' and player.is_on_floor():
             player.body.velocity = pymunk.Vec2d(player.body.velocity.x, player.jump_speed)
             return InAirState()
-        elif not player.is_on_floor():
+        elif not player.is_on_floor(): #Check for air
             return InAirState()
+        elif self.check_current_action() == 'damaged': #Check for damaged
+            return HurtState()
         else:
             return None
             
@@ -305,8 +446,14 @@ class InAirState(PlayerState):
         else:
             player.shape.friction = 0.01
 
-        if player.is_on_floor():
+        # Attack:
+        if self.check_current_action() is not None and self.check_current_action() != 'jump': #Check for attack 
+            return AttackingState()
+        elif player.is_on_floor():
             return GroundState.get_ground_state(player)
+        # Check for damage:
+        elif self.check_current_action() == 'damaged':
+            return HurtState()
         else:
             return None
             
@@ -361,6 +508,44 @@ class StandingState(GroundState):
     def animate_player(self, player):
         pass
 
+class AttackingState(PlayerState):
+    def get_state_name(self):
+        return "AttackingState"
+    
+    def physics_process(self, player: Cube, delta: float) -> PlayerState:
+        attack_timer: float = 0
+        
+        if player.direction and self.check_current_action() is not None:        
+            # Preventing movement during attack
+            player.body.velocity = pymunk.Vec2d(0, player.body.velocity.y)
+
+            # Trigger the smash attack when the spacebar is pressed
+            hammer = player.attacks[1]
+            if (hammer.cool_down_count <= 0):
+                hammer.smash_attack.active = True # attacks[1] -> hammer
+            
+            if player.is_on_floor():
+                return GroundState.get_ground_state(player)
+            else:
+                return InAirState()
+
+        #     if attack_timer >= self.attacks[self.action]:
+        #         #Set action back to None when finished & transition to either GroundState or AirState
+        #         if player.is_on_floor():
+        #             return GroundState.get_ground_state(player)
+        #         else:
+        #             return InAirState()
+        #     else:
+        #         attack_timer += DELTA #Add to the timer
+        #         self.action = None #????
+        #         return None
+        # else:
+        #     if player.is_on_floor():
+        #         return GroundState.get_ground_state(player)
+        #     else:
+        #         return InAirState()
+
+# Hitboxes
 class Hitbox: 
     '''
     This class adds and renders a Hitbox to the game space.
@@ -384,24 +569,28 @@ class HitboxHandler:
     def __init__(self, screen: pygame.display):
         self.screen = screen
 
-    def object_hits_agent(self, game_obj: GameObject, agent: Cube) -> bool:
+    def object_hits_agent(self, game_obj: GameObject, attacked_agent: Cube, attacking_agent: Cube) -> bool:
         game_obj_hitboxes = game_obj.hitboxes
-        agent_bb = agent.get_bounding_box()
+        agent_bb = attacked_agent.get_bounding_box()
 
         # Bounding box rectangle for agent
         pygame.draw.rect(self.screen, (0, 255, 0), (int(agent_bb.left), int(agent_bb.bottom), int(agent_bb.right - agent_bb.left), int(agent_bb.top - agent_bb.bottom)), 1)
         
         for hitbox in game_obj_hitboxes:
             # Draw a rect for the game object
-            game_obj_hitbox = pygame.draw.rect(self.screen, (255, 0, 0), (game_obj.x, game_obj.y, game_obj.image_width, game_obj.image_height), 1)
+            game_obj_hitbox = pygame.draw.rect(self.screen, (255, 0, 0), (hitbox.x, hitbox.y, hitbox.width, hitbox.height), 1)
 
             # Check for overlap between a pygame.rect and pymunk bb
             if game_obj_hitbox.colliderect(agent_bb.left, agent_bb.bottom, agent_bb.right - agent_bb.left, agent_bb.top - agent_bb.bottom):
-                print("hit")
-                agent.update_health(3) # Take damage
+                # print("hit")
+                attacking_agent.state.action = game_obj.get_object_name().lower() # Update the state's action
+                attacked_agent.update_health(3) # Take damage
+                attacked_agent.state.action = 'damaged'
+                # print(attacked_agent.state.action)
                 return True 
-
-            return False
+    
+        attacking_agent.action = None #Refresh the attacking agent's action at the end
+        return False
 
 class Hurtbox:
     def hurtbox(self, body1: Cube, body2: Cube) -> bool:
@@ -509,9 +698,14 @@ class UI:
         pygame.draw.circle(self.screen, BLACK, (x, y), radius//2)
 
 
+# @Override
 def collide(arbiter, space, data):
-    # print("Collision detected!")
-    return True
+    # Check for one-way platform collisions
+    player: Cube = arbiter.shapes[0].body.user_data
+    if player.body.velocity.y < 0 and (player.state.get_state_name() == 'GroundState' or player.state.get_state_name() == 'WalkingState' or player.state.get_state_name() == 'StandingState'):
+        return False
+    else:
+        return True
 
 def display_video(width: int, height: int):
     import cv2
@@ -554,9 +748,13 @@ def main():
     state2: PlayerState = InAirState()
 
     ball = Cube((150, 100), space, 4, 1, screen, cube_color=(255, 140, 0, 255), state=state1, platforms=[ground, platform1, platform2], width=50, height=50)
-    sword = Sword(150, 100, "./assets/sword.png", screen)
-
     ball2 = Cube((450, 100), space, 3, 2, screen, cube_color=(0, 0, 255, 255), state=state2, platforms=[ground, platform1, platform2], width=50, height=50)
+
+    sword = Sword(150, 100, "./assets/sword.png", screen)
+    hammer = Hammer(450, 100, "./assets/hammer.png", screen, ball, ball2)
+    ball.attacks = [sword, hammer, None]
+    ball2.attacks = [sword, hammer, None]
+
     hurtbox = Hurtbox()
 
     # Display initial UI
@@ -583,8 +781,13 @@ def main():
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 sys.exit(0)
-            elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                sys.exit(0)
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    sys.exit(0)
+                elif event.key == pygame.K_SPACE:
+                    # Trigger the smash attack when the spacebar is pressed
+                    if(hammer.cool_down_count <= 0):
+                        hammer.smash_attack.active = True
 
         hurtbox.hurtbox(ball, ball2)
 
@@ -593,7 +796,7 @@ def main():
 
         # Watch for FSM and physics_processes
         # print(ball.body.velocity, " ", ball2.body.velocity)
-        ball.direction = 1
+        ball.direction = 2
         ball2.direction = -1
         ball._physics_process(DELTA)
         ball2._physics_process(DELTA)
@@ -605,15 +808,17 @@ def main():
 
         screen.fill((0, 0, 0))
 
-        # Draw GameObject & sword hitboxes:
-        sword.update_pos(ball.shape.body.position.x, ball.shape.body.position.y)
-        sword.update_hitbox_pos(ball.shape.body.position.x, ball.shape.body.position.y)
-        for hitbox in sword.hitboxes:
+        # Draw GameObject & hammer hitboxes:
+        hammer.update_pos(ball.shape.body.position.x, ball.shape.body.position.y)
+        hammer.smash_attack.execute(game_obj=hammer, hitbox_handler=hitbox_handler)
+        hammer.update_hitbox_pos(ball.shape.body.position.x, ball.shape.body.position.y)
+        
+        for hitbox in hammer.hitboxes:
             hitbox.draw()
-        sword.draw_object()
+        hammer.draw_object()
 
         # Check if the GameObject hits Agent
-        hitbox_handler.object_hits_agent(game_obj=sword, agent=ball2)
+        hitbox_handler.object_hits_agent(game_obj=hammer, attacking_agent=ball, attacked_agent=ball2   )
 
         # Render health UI
         ui.display_UI()
