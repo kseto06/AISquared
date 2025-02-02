@@ -74,7 +74,7 @@ class Move:
     def execute(self, game_obj: GameObject, hitbox_handler):
         if self.active == True and self.current_power:
             self.current_power.execute(game_obj)
-            hit_occurred = hitbox_handler.object_hits_agent(game_obj=game_obj, attacking_agent=self.player, attacked_agent=self.opponent)
+            hit_occurred = hitbox_handler.object_hits_agent(game_objects=self.player.attacks, attacking_agent=self.player, attacked_agent=self.opponent)
             if self.current_power.is_finished():
                 self.current_power.frame_count = 0
                 self.current_power = self.current_power.transition(hit_occurred)
@@ -169,7 +169,7 @@ class Hammer(GameObject):
 game_obj.image_x = (game_obj.x + game_obj.image_width//2) - 10
 game_obj.image_y = (game_obj.y + game_obj.image_height//2) - 10#Centered
 kick_impulse = (0, -150)  # Negative Y for an upward kick
-self.opponent.body.apply_impulse_at_world_point(kick_impulse, self.opponent.body.position)  # Center of the ball
+self.opponent.body.apply_impulse_at_world_point(kick_impulse, self.opponent.body.position+(0, -10))  # Center of the ball
         """)
         on_miss_power = Power(10,self.player,self.opponent,"""game_obj.y -= 5
 game_obj.image_x = (game_obj.x + game_obj.image_width//2) - 10
@@ -419,19 +419,18 @@ class GroundState(PlayerState):
         else:
             # p.velocity.x = move_toward(p.velocity.x, 0, p.pop.move_speed)
             player.shape.friction = 0.01
-
+            
         # Attack:
-        if self.check_current_action() is not None and self.check_current_action() != 'jump': #Check for attack 
+        if self.check_current_action() == 'damaged': #Check for damaged
+            return HurtState().enter(player)
+        elif self.check_current_action() is not None and self.check_current_action() in self.attacks.keys(): #Check for attack 
             return AttackingState()
-
         # Handling jump
-        if self.check_current_action() == 'jump' and player.is_on_floor():
+        elif self.check_current_action() == 'jump' and player.is_on_floor():
             player.body.velocity = pymunk.Vec2d(player.body.velocity.x, player.jump_speed)
             return InAirState()
         elif not player.is_on_floor(): #Check for air
             return InAirState()
-        elif self.check_current_action() == 'damaged': #Check for damaged
-            return HurtState()
         else:
             return None
             
@@ -446,14 +445,16 @@ class InAirState(PlayerState):
         else:
             player.shape.friction = 0.01
 
+        # print(self.check_current_action())
+
+        # Check for damaged/hurt state:
+        if self.check_current_action() == 'damaged':
+            return HurtState().enter(player)
         # Attack:
-        if self.check_current_action() is not None and self.check_current_action() != 'jump': #Check for attack 
+        elif self.check_current_action() is not None and self.check_current_action() in self.attacks.keys(): #Check for attack 
             return AttackingState()
         elif player.is_on_floor():
             return GroundState.get_ground_state(player)
-        # Check for damage:
-        elif self.check_current_action() == 'damaged':
-            return HurtState()
         else:
             return None
             
@@ -464,12 +465,12 @@ class HurtState(InAirState):
     def get_state_name(self) -> str:
         return "HurtState"
     
-    def enter(player: Cube) -> None:
-        player.body.velocity = pymunk.Vec2d(player.body.velocity.x, player.jump_speed)
+    def enter(self, player: Cube) -> None:
+        player.body.velocity = pymunk.Vec2d(player.body.velocity.x, player.body.velocity.y)
 
     def physics_process(self, player: Cube, delta: float) -> PlayerState:
         if player.direction:
-            player.body.velocity = pymunk.Vec2d(player.direction * player.move_speed, player.body.velocity.y)
+            player.body.velocity -= pymunk.Vec2d(player.direction * player.move_speed, player.body.velocity.y)
         else:
             player.shape.friction = 0.01
 
@@ -569,27 +570,33 @@ class HitboxHandler:
     def __init__(self, screen: pygame.display):
         self.screen = screen
 
-    def object_hits_agent(self, game_obj: GameObject, attacked_agent: Cube, attacking_agent: Cube) -> bool:
-        game_obj_hitboxes = game_obj.hitboxes
-        agent_bb = attacked_agent.get_bounding_box()
+    def object_hits_agent(self, game_objects: list[GameObject], attacked_agent: Cube, attacking_agent: Cube) -> bool:
+        for game_obj in game_objects:
+            # Handle NoneType exception
+            if game_obj is None:
+                continue
 
-        # Bounding box rectangle for agent
-        pygame.draw.rect(self.screen, (0, 255, 0), (int(agent_bb.left), int(agent_bb.bottom), int(agent_bb.right - agent_bb.left), int(agent_bb.top - agent_bb.bottom)), 1)
+            game_obj_hitboxes = game_obj.hitboxes
+            agent_bb = attacked_agent.get_bounding_box()
+
+            # Bounding box rectangle for agent
+            pygame.draw.rect(self.screen, (0, 255, 0), (int(agent_bb.left), int(agent_bb.bottom), int(agent_bb.right - agent_bb.left), int(agent_bb.top - agent_bb.bottom)), 1)
+            
+            for hitbox in game_obj_hitboxes:
+                # Draw a rect for the game object
+                game_obj_hitbox = pygame.draw.rect(self.screen, (255, 0, 0), (hitbox.x, hitbox.y, hitbox.width, hitbox.height), 1)
+
+                # Check for overlap between a pygame.rect and pymunk bb
+                if game_obj_hitbox.colliderect(agent_bb.left, agent_bb.bottom, agent_bb.right - agent_bb.left, agent_bb.top - agent_bb.bottom):
+                    # print("hit")
+                    attacking_agent.state.action = game_obj.get_object_name().lower() # Update the state's action
+                    attacked_agent.update_health(3) # Take damage
+                    attacked_agent.state.action = 'damaged'
+                    # print(attacked_agent.state.action)
+                    return True 
         
-        for hitbox in game_obj_hitboxes:
-            # Draw a rect for the game object
-            game_obj_hitbox = pygame.draw.rect(self.screen, (255, 0, 0), (hitbox.x, hitbox.y, hitbox.width, hitbox.height), 1)
-
-            # Check for overlap between a pygame.rect and pymunk bb
-            if game_obj_hitbox.colliderect(agent_bb.left, agent_bb.bottom, agent_bb.right - agent_bb.left, agent_bb.top - agent_bb.bottom):
-                # print("hit")
-                attacking_agent.state.action = game_obj.get_object_name().lower() # Update the state's action
-                attacked_agent.update_health(3) # Take damage
-                attacked_agent.state.action = 'damaged'
-                # print(attacked_agent.state.action)
-                return True 
-    
-        attacking_agent.action = None #Refresh the attacking agent's action at the end
+            attacking_agent.action = None #Refresh the attacking agent's action at the end
+        
         return False
 
 class Hurtbox:
@@ -744,16 +751,20 @@ def main():
     platform1 = Ground(space, 125, 400, 125)  # First platform
     platform2 = Ground(space, 350, 400, 125)  # Second platform with a gap
 
+    # Init 
     state1: PlayerState = InAirState()
     state2: PlayerState = InAirState()
 
     ball = Cube((150, 100), space, 4, 1, screen, cube_color=(255, 140, 0, 255), state=state1, platforms=[ground, platform1, platform2], width=50, height=50)
     ball2 = Cube((450, 100), space, 3, 2, screen, cube_color=(0, 0, 255, 255), state=state2, platforms=[ground, platform1, platform2], width=50, height=50)
 
+    # Init attacks (GameObjects)
     sword = Sword(150, 100, "./assets/sword.png", screen)
     hammer = Hammer(450, 100, "./assets/hammer.png", screen, ball, ball2)
+    sword2 = Sword(150, 100, "./assets/sword.png", screen)
+    hammer2 = Hammer(450, 100, "./assets/hammer.png", screen, ball2, ball)
     ball.attacks = [sword, hammer, None]
-    ball2.attacks = [sword, hammer, None]
+    ball2.attacks = [sword2, hammer2, None]
 
     hurtbox = Hurtbox()
 
@@ -817,8 +828,9 @@ def main():
             hitbox.draw()
         hammer.draw_object()
 
-        # Check if the GameObject hits Agent
-        hitbox_handler.object_hits_agent(game_obj=hammer, attacking_agent=ball, attacked_agent=ball2   )
+        # Check if the GameObject hits Agent for each agent
+        hitbox_handler.object_hits_agent(game_objects=ball.attacks, attacking_agent=ball, attacked_agent=ball2)
+        hitbox_handler.object_hits_agent(game_objects=ball2.attacks, attacking_agent=ball2, attacked_agent=ball)
 
         # Render health UI
         ui.display_UI()
