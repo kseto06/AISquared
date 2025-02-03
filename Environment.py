@@ -75,6 +75,15 @@ class Move:
         if self.active == True and self.current_power:
             self.current_power.execute(game_obj)
             hit_occurred = hitbox_handler.object_hits_agent(game_objects=self.player.attacks, attacking_agent=self.player, attacked_agent=self.opponent)
+            
+            # Transition immediately on hit - NOTE: This may need to be removed since it will automatically trigger the attack
+            print(self.opponent.state.action)
+            if hit_occurred and self.current_power.on_hit_power:
+                self.current_power = self.current_power.on_hit_power
+                self.current_power.frame_count = 0
+                self.current_power.execute(game_obj)
+
+            # Transition on duration
             if self.current_power.is_finished():
                 self.current_power.frame_count = 0
                 self.current_power = self.current_power.transition(hit_occurred)
@@ -84,7 +93,7 @@ class Move:
             self.current_power = self.initial_power
     
 class Power:
-    def __init__(self, duration, player, opponent, power_script="", on_hit_power=None, on_miss_power=None):
+    def __init__(self, duration: float, player, opponent, power_script: str="", on_hit_power=None, on_miss_power=None):
         self.duration = duration # duration is in frames (as well)
         self.frame_count = 0
 
@@ -104,7 +113,7 @@ class Power:
         self.update_frame_count()
 
     def is_finished(self):
-       # Check if all casts in the power have completed.
+       # Check if all casts in the power have completed, or if the opponent got hit by any hitbox/cast during the attack
         return self.frame_count > self.duration
 
     def transition(self, hit_occurred):
@@ -119,6 +128,7 @@ class Sword(GameObject):
         super().__init__(x, y, dir_name, screen)
         self.x = x
         self.y = y
+        self.attack = None
 
     def construct_hitboxes(self):
         # Construct multiple hitboxes based on their (x, y) coordinates
@@ -144,10 +154,6 @@ class Sword(GameObject):
         self.x = x
         self.y = y
         self.construct_hitboxes()
-
-    # TODO: Powercast a simple sword move, logic to make it appear/disappear
-    def dash_attack():
-        pass
 
 class Throw(GameObject):
     pass
@@ -185,7 +191,7 @@ game_obj.image_y = (game_obj.y + game_obj.image_height//2) - 10#Centered
             on_miss_power=on_miss_power
         )
 
-        self.smash_attack = Move(initial_power, self.player, self.opponent)
+        self.attack = Move(initial_power, self.player, self.opponent)
        
 
     def construct_hitboxes(self):
@@ -219,9 +225,8 @@ initial_power = Power(10,"",on_hit_power, on_miss_power)
 
     # TODO: Add specific hammer attack logic
 
-'''
-TODO: Add more object/action classes here as needed
-'''
+class Punch(GameObject):
+    pass
 
 @DeprecationWarning #Initial 3b1b ball. Use the new cube object
 class Ball:
@@ -240,11 +245,13 @@ class Ball:
         space.add(self.shape, self.body, leg1, leg2)
 
 class Ground:
-    def __init__(self, space: pymunk.Space, x: int, y: int, width_ground: int):
+    def __init__(self, space: pymunk.Space, x: int, y: int, width_ground: int, collision_type: int = 1):
         self.body = pymunk.Body(x, y, body_type=pymunk.Body.STATIC)
         self.shape = pymunk.Poly.create_box(self.body, (width_ground, 10))
         self.shape.body.position = (x + width_ground // 2, y)
         self.shape.friction = 0.8
+        self.shape.collision_type = 1
+        self.shape.filter = pymunk.ShapeFilter(categories=1, mask=2)
         space.add(self.shape, self.body)
 
 class Cube:
@@ -260,6 +267,7 @@ class Cube:
         self.shape.body = self.body
 
         self.shape.collision_type = collision_type
+        self.shape.filter = pymunk.ShapeFilter(categories=2, mask=1)
         self.shape.body.position = position
         space.add(self.shape, self.body)
 
@@ -268,10 +276,14 @@ class Cube:
         self.right_eye = pymunk.Circle(self.body, radius=8, offset=(width // 4, -height // 5))
         self.left_pupil = pymunk.Circle(self.body, radius=4, offset=(-width // 4, -height // 5))
         self.right_pupil = pymunk.Circle(self.body, radius=4, offset=(width // 4, -height // 5))
-        
-        # Make eyes non-colliding
-        self.left_eye.filter = pymunk.ShapeFilter(categories=0)
-        self.right_eye.filter = pymunk.ShapeFilter(categories=0)
+        self.left_eye.collision_type = collision_type
+        self.right_eye.collision_type = collision_type
+        self.left_pupil.collision_type = collision_type
+        self.right_pupil.collision_type = collision_type
+        self.left_eye.filter = pymunk.ShapeFilter(categories=2, mask=1)
+        self.right_eye.filter = pymunk.ShapeFilter(categories=2, mask=1)
+        self.left_pupil.filter = pymunk.ShapeFilter(categories=2, mask=1)
+        self.right_pupil.filter = pymunk.ShapeFilter(categories=2, mask=1)
     
         # Add eyes to the space
         space.add(self.left_eye, self.right_eye, self.left_pupil, self.right_pupil)
@@ -288,7 +300,7 @@ class Cube:
         # Movement
         self.direction = 0
         self.move_speed = 50 #On the x
-        self.jump_speed = 50
+        self.jump_acceleration = 3176
 
         # Start state = InAirState
         self.state = state
@@ -322,6 +334,11 @@ class Cube:
     #         return -1 #Left
     #     else:
     #         return 0 #Stationary
+
+    def jump(self):
+        self.shape.body.apply_force_at_local_point((0, self.jump_acceleration * self.mass * -2), (0, 0))
+        self.action = 'jump'
+        return self
         
     def update_health(self, new_health: float):
         self.health += int(new_health)
@@ -467,10 +484,11 @@ class HurtState(InAirState):
     
     def enter(self, player: Cube) -> None:
         player.body.velocity = pymunk.Vec2d(player.body.velocity.x, player.body.velocity.y)
+        return self
 
     def physics_process(self, player: Cube, delta: float) -> PlayerState:
         if player.direction:
-            player.body.velocity -= pymunk.Vec2d(player.direction * player.move_speed, player.body.velocity.y)
+            player.body.velocity = pymunk.Vec2d(player.direction * player.move_speed, player.body.velocity.y)
         else:
             player.shape.friction = 0.01
 
@@ -523,8 +541,11 @@ class AttackingState(PlayerState):
             # Trigger the smash attack when the spacebar is pressed
             hammer = player.attacks[1]
             if (hammer.cool_down_count <= 0):
-                hammer.smash_attack.active = True # attacks[1] -> hammer
+                hammer.attack.active = True # attacks[1] -> hammer
             
+            # Check for damaged/hurt state:
+            if self.check_current_action() == 'damaged':
+                return HurtState().enter(player)
             if player.is_on_floor():
                 return GroundState.get_ground_state(player)
             else:
@@ -596,8 +617,48 @@ class HitboxHandler:
                     return True 
         
             attacking_agent.action = None #Refresh the attacking agent's action at the end
-        
         return False
+    
+    def object_hits_agent_v1(self, game_obj: GameObject, attacked_agent: Cube, attacking_agent: Cube) -> bool:
+        game_obj_hitboxes = game_obj.hitboxes
+        agent_bb = attacked_agent.get_bounding_box()
+
+        # Bounding box rectangle for agent
+        pygame.draw.rect(self.screen, (0, 255, 0), (int(agent_bb.left), int(agent_bb.bottom), int(agent_bb.right - agent_bb.left), int(agent_bb.top - agent_bb.bottom)), 1)
+        
+        for hitbox in game_obj_hitboxes:
+            # Draw a rect for the game object
+            game_obj_hitbox = pygame.draw.rect(self.screen, (255, 0, 0), (hitbox.x, hitbox.y, hitbox.width, hitbox.height), 1)
+
+            # Check for overlap between a pygame.rect and pymunk bb
+            if game_obj_hitbox.colliderect(agent_bb.left, agent_bb.bottom, agent_bb.right - agent_bb.left, agent_bb.top - agent_bb.bottom):
+                # print("hit")
+                attacking_agent.state.action = game_obj.get_object_name().lower() # Update the state's action
+                attacked_agent.update_health(3) # Take damage
+                attacked_agent.state.action = 'damaged'
+                return True 
+    
+        attacking_agent.action = None #Refresh the attacking agent's action at the end
+        return False
+
+    # NOTE: Doesn't work
+    def apply_hitboxes(self, agent: Cube, game_objects: list[GameObject]):
+        '''
+        Applies hitbox UI and execution logic to the game objects
+        '''
+        for game_obj in game_objects:
+            if game_obj is None:
+                continue
+            game_obj.update_pos(agent.shape.body.position.x, agent.shape.body.position.y)
+            
+            if game_obj.attack is not None:
+                game_obj.attack.execute(game_obj=game_obj, hitbox_handler=self)
+
+            game_obj.update_hitbox_pos(agent.shape.body.position.x, agent.shape.body.position.y)
+            
+            for hitbox in game_obj.hitboxes:
+                hitbox.draw()
+            game_obj.draw_object()
 
 class Hurtbox:
     def hurtbox(self, body1: Cube, body2: Cube) -> bool:
@@ -708,11 +769,28 @@ class UI:
 # @Override
 def collide(arbiter, space, data):
     # Check for one-way platform collisions
-    player: Cube = arbiter.shapes[0].body.user_data
-    if player.body.velocity.y < 0 and (player.state.get_state_name() == 'GroundState' or player.state.get_state_name() == 'WalkingState' or player.state.get_state_name() == 'StandingState'):
-        return False
-    else:
-        return True
+    agents: list[Cube] = [data['agent1'], data['agent2']]
+    
+    # Check to disable collisions: 
+    for agent in agents:
+        print(agent.action)
+        if agent.body.velocity.y < 0 and agent.state.get_state_name() != 'HurtState':
+            agent.shape.filter = pymunk.ShapeFilter(categories=2, mask=0) 
+            agent.left_eye = pymunk.ShapeFilter(categories=2, mask=0)
+            agent.right_eye = pymunk.ShapeFilter(categories=2, mask=0)
+            agent.left_pupil = pymunk.ShapeFilter(categories=2, mask=0)
+            agent.right_pupil = pymunk.ShapeFilter(categories=2, mask=0)
+            return False
+    
+    #Enable collisions if not jumping
+    for agent in agents:
+        agent.shape.filter = pymunk.ShapeFilter(categories=2, mask=1) 
+        agent.left_eye = pymunk.ShapeFilter(categories=2, mask=1)
+        agent.right_eye = pymunk.ShapeFilter(categories=2, mask=1)
+        agent.left_pupil = pymunk.ShapeFilter(categories=2, mask=1)
+        agent.right_pupil = pymunk.ShapeFilter(categories=2, mask=1)
+
+    return True
 
 def display_video(width: int, height: int):
     import cv2
@@ -755,7 +833,7 @@ def main():
     state1: PlayerState = InAirState()
     state2: PlayerState = InAirState()
 
-    ball = Cube((150, 100), space, 4, 1, screen, cube_color=(255, 140, 0, 255), state=state1, platforms=[ground, platform1, platform2], width=50, height=50)
+    ball = Cube((150, 100), space, 4, 2, screen, cube_color=(255, 140, 0, 255), state=state1, platforms=[ground, platform1, platform2], width=50, height=50)
     ball2 = Cube((450, 100), space, 3, 2, screen, cube_color=(0, 0, 255, 255), state=state2, platforms=[ground, platform1, platform2], width=50, height=50)
 
     # Init attacks (GameObjects)
@@ -772,8 +850,11 @@ def main():
     ui = UI(screen=screen, agent_1=ball, agent_2=ball2)
 
     hitbox_handler = HitboxHandler(screen)
-    collision_handler = space.add_collision_handler(1, 2)
-    collision_handler.begin = collide
+    collision_handler = space.add_collision_handler(2, 1)
+    collision_handler.begin = lambda arbiter, space, data: collide(arbiter, space, {
+        'agent1': ball, 
+        'agent2': ball2
+    })
     frame_count = 0
 
     # Define the y-coordinate threshold for quitting
@@ -798,16 +879,19 @@ def main():
                 elif event.key == pygame.K_SPACE:
                     # Trigger the smash attack when the spacebar is pressed
                     if(hammer.cool_down_count <= 0):
-                        hammer.smash_attack.active = True
+                        hammer.attack.active = True
+                elif event.key == pygame.K_k:
+                    # TEST: manual jump on 'k' pressed
+                    ball.jump()
 
-        hurtbox.hurtbox(ball, ball2)
+        # hurtbox.hurtbox(ball, ball2)
 
         # Continuously move the balls toward each other
         # apply_force_toward_each_other(ball, ball2, 50)
 
         # Watch for FSM and physics_processes
         # print(ball.body.velocity, " ", ball2.body.velocity)
-        ball.direction = 2
+        ball.direction = 1
         ball2.direction = -1
         ball._physics_process(DELTA)
         ball2._physics_process(DELTA)
@@ -821,12 +905,14 @@ def main():
 
         # Draw GameObject & hammer hitboxes:
         hammer.update_pos(ball.shape.body.position.x, ball.shape.body.position.y)
-        hammer.smash_attack.execute(game_obj=hammer, hitbox_handler=hitbox_handler)
+        hammer.attack.execute(game_obj=hammer, hitbox_handler=hitbox_handler)
         hammer.update_hitbox_pos(ball.shape.body.position.x, ball.shape.body.position.y)
         
         for hitbox in hammer.hitboxes:
             hitbox.draw()
         hammer.draw_object()
+        # hitbox_handler.apply_hitboxes(ball, ball.attacks)
+        # hitbox_handler.apply_hitboxes(ball2, ball2.attacks)
 
         # Check if the GameObject hits Agent for each agent
         hitbox_handler.object_hits_agent(game_objects=ball.attacks, attacking_agent=ball, attacked_agent=ball2)
@@ -840,7 +926,7 @@ def main():
 
         space.debug_draw(draw_options)
         space.step(DELTA)
-        pygame.display.flip() # pygame.display.update()
+        pygame.display.update() # pygame.display.update()
         clock.tick(50)
         # pygame.image.save(screen, f"frames/frame_{frame_count:04d}.png")
         frame_count += 1
