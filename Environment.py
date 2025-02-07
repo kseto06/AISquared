@@ -55,9 +55,7 @@ class GameObject:
     # GAME OBJECT HITBOXES
 
     def add_hitbox(self, x: int, y: int, width: int, height: int):
-        '''
-        Append a new hitbox to the GameObject's collection of hitboxes
-        '''
+        #Append a new hitbox to the GameObject's collection of hitboxes
         self.hitboxes.append(Hitbox(x, y, width, height, self.screen))
 
     def reflect_hitboxes(self):
@@ -75,6 +73,20 @@ class GameObject:
 
     def draw_object(self):
         self.screen.blit(self.image, (self.image_x, self.image_y))
+    
+    def reflect_hitboxes(self):
+        CUBE_DIM = 50
+        new_hitboxes = []
+        for hitbox in self.hitboxes:
+            x = (self.x + CUBE_DIM/2) - (hitbox.x - (self.x + CUBE_DIM/2))
+            y = (self.y + CUBE_DIM/2) - (hitbox.y - (self.y + CUBE_DIM/2))
+            width = hitbox.width
+            height = hitbox.height
+            new_hitboxes.append(Hitbox(x, y, width, height, self.screen))
+        self.hitboxes = new_hitboxes
+    
+        
+
 
 class Move:
     # A move manages powers and transitions between them.
@@ -92,16 +104,15 @@ class Move:
         self.frames = frames # List of animation frames
         self.logged_direction = None
         self.draw_object = draw_object
-
+        self.logged_direction = 1
     def activate(self):
         if(not self.player.cool_down):
             self.active = True
 
     def execute(self, game_obj: GameObject, hitbox_handler):
-        if (self.player.direction < self.opponent.direction):
-            game_obj.reflect_hitboxes()
-  
-        self.logged_direction = self.player.direction
+        # if game_obj.get_object_name() == "GroundPound":
+        #     print(self.current_power.frames != None, self.current_power.frame_count)
+
         if self.active == True and self.current_power:
             # self.draw_object(self.current_power.frames, frame_idx=self.current_power.frame_count)
             self.current_power.execute(game_obj)
@@ -184,7 +195,6 @@ class Sword(GameObject):
         self.x = x
         self.y = y
         self.attack = None
-
     def construct_hitboxes(self):
         # Construct multiple hitboxes based on their (x, y) coordinates
         # NOTE: Change this for different types of game objects
@@ -533,8 +543,10 @@ class Cube:
         # self.body.velocity = pymunk.Vec2d(self.body.velocity.x * dir, self.body.velocity.y)
         if self.body.velocity.x > 0:
             self.direction = 1
+           
         elif self.body.velocity.x < 0:
             self.direction = -1
+          
         else:
             self.direction = 0 #Stationary
 
@@ -1006,6 +1018,7 @@ class Controller:
             for i in range(len(game_objects[a])): #Loop through game objects per agent
                 # Assuming action spaces look like [1, -1, -1, ..., 1], where -1 represents not doing the action right now, 1 represents doing the action
                 if agent_action_spaces[a][i] == 1 and game_objects[a][i] is not None:
+        
                     game_objects[a][i].update_pos(agents[0+a].shape.body.position.x, agents[1-a].shape.body.position.y)
                     game_objects[a][i].update_hitbox_pos(agents[0+a].shape.body.position.x, agents[1-a].shape.body.position.y)
                     # game_objects[a][i].attack.activate()
@@ -1015,9 +1028,9 @@ class Controller:
                     for hitbox in game_objects[a][i].hitboxes:
                         hitbox.draw()
                     
-                    if game_objects[a][i].get_object_name() in ['GroundPound']:
-                        game_objects[a][i].process()
-
+                    #if game_objects[a][i].get_object_name() in ['GroundPound']:
+                   #     game_objects[a][i].process()
+                    game_objects[a][i].process()
                     game_objects[a][i].draw_object()
     
     def check_game_hitboxes(self, agents: list[Cube], hitbox_handler: HitboxHandler):
