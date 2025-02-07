@@ -60,6 +60,19 @@ class GameObject:
         '''
         self.hitboxes.append(Hitbox(x, y, width, height, self.screen))
 
+    def reflect_hitboxes(self):
+        CUBE_DIM = 50
+        new_hitboxes = []
+        for hitbox in self.hitboxes:
+            # x = (self.x + CUBE_DIM/2) - (hitbox.x - (self.x + CUBE_DIM/2))
+            x = 2 * (self.x + CUBE_DIM / 2) - hitbox.x - CUBE_DIM*2.5
+            # y = (self.y + CUBE_DIM/2) - (hitbox.y - (self.y + CUBE_DIM/2))
+            y = hitbox.y
+            width = hitbox.width
+            height = hitbox.height
+            new_hitboxes.append(Hitbox(x, y, width, height, self.screen))
+        self.hitboxes = new_hitboxes
+
     def draw_object(self):
         self.screen.blit(self.image, (self.image_x, self.image_y))
 
@@ -77,7 +90,7 @@ class Move:
         self.cool_down_duration = 50 # can change to a parameter ~!
 
         self.frames = frames # List of animation frames
-        # print(self.frames != None)
+        self.logged_direction = None
         self.draw_object = draw_object
 
     def activate(self):
@@ -85,9 +98,10 @@ class Move:
             self.active = True
 
     def execute(self, game_obj: GameObject, hitbox_handler):
-        # if game_obj.get_object_name() == "GroundPound":
-        #     print(self.current_power.frames != None, self.current_power.frame_count)
-
+        if (self.player.direction < self.opponent.direction):
+            game_obj.reflect_hitboxes()
+  
+        self.logged_direction = self.player.direction
         if self.active == True and self.current_power:
             # self.draw_object(self.current_power.frames, frame_idx=self.current_power.frame_count)
             self.current_power.execute(game_obj)
