@@ -6,6 +6,7 @@ import sys
 from pymunk.pygame_util import DrawOptions
 from enum import Enum
 from typing import Union
+from PIL import Image, ImageSequence
 
 width = 600
 height = 600
@@ -64,7 +65,7 @@ class GameObject:
 
 class Move:
     # A move manages powers and transitions between them.
-    def __init__(self, initial_power, player, opponent):
+    def __init__(self, initial_power, player, opponent, frames: list, draw_object: callable):
         self.initial_power = initial_power
         self.current_power = self.initial_power
         self.player = player
@@ -75,13 +76,20 @@ class Move:
 
         self.cool_down_duration = 50 # can change to a parameter ~!
 
+        self.frames = frames # List of animation frames
+        # print(self.frames != None)
+        self.draw_object = draw_object
+
     def activate(self):
         if(not self.player.cool_down):
             self.active = True
 
-
     def execute(self, game_obj: GameObject, hitbox_handler):
+        # if game_obj.get_object_name() == "GroundPound":
+        #     print(self.current_power.frames != None, self.current_power.frame_count)
+
         if self.active == True and self.current_power:
+            # self.draw_object(self.current_power.frames, frame_idx=self.current_power.frame_count)
             self.current_power.execute(game_obj)
             self.hit_occurred = hitbox_handler.object_hits_agent(game_objects=self.player.attacks, attacking_agent=self.player, attacked_agent=self.opponent)
             
@@ -95,7 +103,11 @@ class Move:
             # Transition on duration
             if self.current_power.is_finished():
                 self.current_power.frame_count = 0
-                self.current_power = self.current_power.transition(self.hit_occurred)
+
+                next_power = self.current_power.transition(self.hit_occurred)
+                if next_power is not self.current_power:
+                    self.current_power = next_power
+
                 if not self.hit_occurred:
                     #implies miss
                     self.player.cool_down = True
@@ -105,7 +117,7 @@ class Move:
             self.current_power = self.initial_power
     
 class Power:
-    def __init__(self, duration: float, player, opponent, power_script: str="", on_hit_power=None, on_miss_power=None):
+    def __init__(self, duration: float, player, opponent, frames: list, draw_object: callable, power_script: str="", on_hit_power=None, on_miss_power=None):
         self.duration = duration # duration is in frames (as well)
         self.frame_count = 0
 
@@ -117,16 +129,22 @@ class Power:
         self.on_hit_power = on_hit_power  # Power to transition to on hit
         self.on_miss_power = on_miss_power  # Power to transition to on miss
 
-        
+        self.frames = frames
+        self.draw_object = draw_object
 
     def update_frame_count(self):
         self.frame_count += 1
+
         if(self.player.cool_down):
             self.player.cool_down_count += 1
 
     def execute(self, game_obj):
         exec(self.power_script)
         self.update_frame_count()
+        # For GIFs:
+        print(self.frames == None)
+        if self.frames is not None:
+            self.draw_object(self.frames, frame_idx=self.frame_count)
 
     def is_finished(self):
        # Check if all casts in the power have completed, or if the opponent got hit by any hitbox/cast during the attack
@@ -134,8 +152,14 @@ class Power:
 
     def transition(self, hit_occurred):
         # Determine which power to transition to based on hit or miss.
+        next_power = self.on_hit_power if hit_occurred else self.on_miss_power
+        # if next_power is None:
+        #     return self
+        
+        # if next_power.frames is None:
+        #     next_power.frames = self.frames
+        return next_power
 
-        return self.on_hit_power if hit_occurred else self.on_miss_power
 
 class Sword(GameObject):
     '''
@@ -184,18 +208,18 @@ class Hammer(GameObject):
         self.player = player
         self.opponent = opponent
 
-        on_hit_power = Power(10,self.player,self.opponent,"""game_obj.y -= 5
+        on_hit_power = Power(10,self.player,self.opponent, None, None, """game_obj.y -= 5
 game_obj.image_x = (game_obj.x + game_obj.image_width//2) - 10
 game_obj.image_y = (game_obj.y + game_obj.image_height//2) - 10#Centered
 kick_impulse = (0, -50)  # Negative Y for an upward kick
 self.opponent.body.apply_impulse_at_world_point(kick_impulse, self.opponent.body.position+(0, -10))  # Center of the ball
         """)
-        on_miss_power = Power(10,self.player,self.opponent,"""game_obj.y -= 5
+        on_miss_power = Power(10,self.player,self.opponent, None, None, """game_obj.y -= 5
 game_obj.image_x = (game_obj.x + game_obj.image_width//2) - 10
 game_obj.image_y = (game_obj.y + game_obj.image_height//2) - 10#Centered    
         """)
         initial_power = Power(
-            10, self.player, self.opponent,
+            10, self.player, self.opponent, None, None,
             power_script="""game_obj.y += 5
 game_obj.image_x = (game_obj.x + game_obj.image_width//2) - 10
 game_obj.image_y = (game_obj.y + game_obj.image_height//2) - 10#Centered
@@ -204,7 +228,7 @@ game_obj.image_y = (game_obj.y + game_obj.image_height//2) - 10#Centered
             on_miss_power=on_miss_power
         )
 
-        self.attack = Move(initial_power, self.player, self.opponent)
+        self.attack = Move(initial_power, self.player, self.opponent, None, None)
        
 
     def construct_hitboxes(self):
@@ -251,17 +275,17 @@ class Punch(GameObject):
         self.delta_x = 0 #x displacement due to punch
         self.delta_y = 0 #y displacement due to punch
 
-        on_hit_power = Power(5,self.player,self.opponent,"""
+        on_hit_power = Power(5,self.player,self.opponent, None, None, """
 game_obj.delta_x += 5
 KICK_FORCE = 150
 kick_impulse = self.opponent.body.position - (game_obj.x,game_obj.y)
 kick_impulse = kick_impulse/kick_impulse.length * KICK_FORCE
 self.opponent.body.apply_impulse_at_world_point(kick_impulse, self.opponent.body.position+(0, -10))  # Center of the ball
         """)
-        on_miss_power = Power(5,self.player,self.opponent,"""
+        on_miss_power = Power(5,self.player,self.opponent,None, None, """
 game_obj.delta_x += 5
         """)
-        initial_power = Power(5, self.player, self.opponent,
+        initial_power = Power(5, self.player, self.opponent, None, None,
             power_script="""
 game_obj.delta_x -= 5
         """,
@@ -269,14 +293,12 @@ game_obj.delta_x -= 5
             on_miss_power=on_miss_power
         )
 
-        self.attack = Move(initial_power, self.player, self.opponent)
+        self.attack = Move(initial_power, self.player, self.opponent, None, None)
     
     def update_pos(self, x: int, y: int):
-
         self.x = x
         self.y = y
 
-        
         self.image_x = (x + self.image_width//2) - 10 -75 +10 + self.delta_x
         self.image_y = (y + self.image_height//2) - 10 -20+10 + self.delta_y#Centered
 
@@ -303,6 +325,88 @@ on_miss_power = Power(10,"")
 initial_power = Power(10,"",on_hit_power, on_miss_power)
 
 """
+
+class GroundPound(GameObject):
+    def __init__(self, x: int, y: int, dir_name: str, screen: pygame.display, player, opponent):
+        super().__init__(x, y, dir_name, screen)
+        self.x = x
+        self.y = y
+        self.player = player
+        self.opponent = opponent
+
+        #Gif:
+        scale = 1
+        gif = Image.open(dir_name)
+        self.frames = [
+            pygame.transform.scale(
+                pygame.image.fromstring(frame.convert("RGBA").tobytes(), frame.size, "RGBA"),
+                (int(frame.width * scale), int(frame.height * scale))
+            )
+            for frame in ImageSequence.Iterator(gif)
+        ]
+        self.image_width /= scale
+        self.image_height /= scale
+   
+        self.animation_timer = 0
+        self.animation_speed = 0.1
+        self.current_frame_index = 0
+        self.finished = False  # Whether the animation is done
+        self.delta_x = 0 #x displacement due to punch
+        self.delta_y = 0 #y displacement due to punch
+
+        on_hit_power = Power(5,self.player,self.opponent,self.frames,self.draw_object,"""
+game_obj.delta_x += 5
+KICK_FORCE = 150
+kick_impulse = self.opponent.body.position - (game_obj.x,game_obj.y)
+kick_impulse = kick_impulse/kick_impulse.length * KICK_FORCE
+self.opponent.body.apply_impulse_at_world_point(kick_impulse, self.opponent.body.position+(0, -10))  # Center of the ball
+        """)
+        on_miss_power = Power(5,self.player,self.opponent,self.frames,self.draw_object,"""
+game_obj.delta_x += 5
+        """)
+        initial_power = Power(5, self.player, self.opponent,self.frames,self.draw_object,
+            power_script="""
+game_obj.delta_x -= 5
+        """,
+            on_hit_power=on_hit_power,
+            on_miss_power=on_miss_power
+        )
+        
+        self.attack = Move(initial_power, self.player, self.opponent, self.frames, self.draw_object)
+    
+    def update_pos(self, x: int, y: int):
+        self.x = x
+        self.y = y
+        
+        self.image_x = (x + self.image_width//2) - 10 - 25 - self.delta_x
+        self.image_y = (y + self.image_height//2) - 10 - 75- self.delta_y#Centered
+
+    def construct_hitboxes(self):
+        self.hitboxes = [] #martin edited
+        self.add_hitbox(
+            self.image_x , self.image_y,  # Top-left corner
+            self.image_width,  # Width
+            self.image_height # Height
+        )
+        
+    def update_hitbox_pos(self, x, y):
+        self.x = x 
+        self.y = y
+        self.construct_hitboxes()
+        # Add hammer handle hitbox
+        # self.hitboxes.append(Hitbox(self.x, self.y, self.image_width+10, self.image_height, self.screen))
+    
+    def process(self):
+        self.animation_timer += self.animation_speed
+        if self.animation_timer >= 1:
+            self.animation_timer = 0
+            self.current_frame_index += 1
+            if self.current_frame_index >= len(self.frames):
+                self.finished = True
+
+    def draw_object(self):
+        if not self.finished:
+            self.screen.blit(self.frames[self.current_frame_index], (self.image_x, self.image_y))
 
     # TODO: Add specific hammer attack logic
 
@@ -400,7 +504,7 @@ class Cube:
     def update_cool_down_count(self):
         if(self.cool_down):
             
-            if(self. cool_down_count >= self.cool_down_duration):
+            if(self.cool_down_count >= self.cool_down_duration):
                 self.cool_down = False
                 self.cool_down_duration = -1
                 self.cool_down_count = 0
@@ -408,8 +512,6 @@ class Cube:
               
                 self.cool_down_count += 1
         
-          
-
     def set_direction(self) -> int:
         '''
         Set the direction of an object [-1, 0, 1]; moving left, stationary, right
@@ -479,7 +581,7 @@ class Cube:
             self.state = new_state
             self.state.enter(self)
         
-        # 🔥 Ensure correct state transition when landing
+        # Ensure correct state transition when landing
         if self.is_on_floor() and isinstance(self.state, InAirState):
             self.state = GroundState.get_ground_state(self)
 
@@ -881,6 +983,40 @@ class UI:
         pygame.draw.circle(self.screen, WHITE, (x, y), radius)
         pygame.draw.circle(self.screen, BLACK, (x, y), radius//2)
 
+class Controller:
+    def render_game_objects_and_functions(self, game_objects: list[list[GameObject]], agents: list[Cube], hitbox_handler: HitboxHandler, agent_action_spaces: list[list[int]], frame_count: int):
+        # print(game_objects)
+        # print(agents)
+        # print(agent_action_spaces)
+        for a in range(len(agents)): # Loop through each agent
+            for i in range(len(game_objects[a])): #Loop through game objects per agent
+                # Assuming action spaces look like [1, -1, -1, ..., 1], where -1 represents not doing the action right now, 1 represents doing the action
+                if agent_action_spaces[a][i] == 1 and game_objects[a][i] is not None:
+                    game_objects[a][i].update_pos(agents[0+a].shape.body.position.x, agents[1-a].shape.body.position.y)
+                    game_objects[a][i].update_hitbox_pos(agents[0+a].shape.body.position.x, agents[1-a].shape.body.position.y)
+                    # game_objects[a][i].attack.activate()
+
+                    game_objects[a][i].attack.execute(game_obj=game_objects[a][i], hitbox_handler=hitbox_handler)
+                   
+                    for hitbox in game_objects[a][i].hitboxes:
+                        hitbox.draw()
+                    
+                    if game_objects[a][i].get_object_name() in ['GroundPound']:
+                        game_objects[a][i].process()
+
+                    game_objects[a][i].draw_object()
+    
+    def check_game_hitboxes(self, agents: list[Cube], hitbox_handler: HitboxHandler):
+        for i in range(len(agents)):
+            hitbox_handler.object_hits_agent(game_objects=agents[i].attacks, attacking_agent=agents[i], attacked_agent=agents[1-i])
+
+    def process_physics(self, agents: list[Cube], action_spaces: list[list[int]]):
+        for i in range(len(agents)):
+            for j in range(len(action_spaces[i])):
+                agents[i].direction = action_spaces[i][j] #Direction = [-1, 0, 1]
+                agents[i]._physics_process(DELTA)
+                agents[i].update_cool_down_count()
+                break
 
 # @Override
 """
@@ -910,6 +1046,7 @@ def collide(arbiter, space, data):
     return True
 """
 
+# @Override
 def collide(arbiter, space, data):
     agents: list[Cube] = [data['agent1'], data['agent2']]
     
@@ -973,20 +1110,28 @@ def main():
 
     # Init attacks (GameObjects)
     sword = Sword(150, 100, "./assets/sword.png", screen)
-    hammer = Hammer(450, 100, "./assets/hammer.png", screen, ball, ball2)
-    punch = Punch(450, 100, "./assets/punch.png", screen, ball, ball2)
+    hammer = Hammer(150, 100, "./assets/hammer.png", screen, ball, ball2)
+    punch = Punch(150, 100, "./assets/punch.png", screen, ball, ball2)
 
-    sword2 = Sword(150, 100, "./assets/sword.png", screen)
+    sword2 = Sword(450, 100, "./assets/sword.png", screen)
     hammer2 = Hammer(450, 100, "./assets/hammer.png", screen, ball2, ball)
     punch2 = Punch(450, 100, "./assets/punch.png", screen, ball2, ball)
 
-    ball.attacks = [sword, hammer, punch]
-    ball2.attacks = [sword2, hammer2, punch2]
+    gp_test = GroundPound(150, 100, "./assets/unarmedgp.gif", screen, ball, ball2)
+    gp_test2 = GroundPound(450, 100, "./assets/unarmedgp.gif", screen, ball2, ball)
+
+    ball.attacks = [sword, hammer, punch, gp_test]
+    ball2.attacks = [sword2, hammer2, punch2, gp_test2]
+    action_space_1 = [1, 0, -1, -1, -1, 1]
+    action_space_2 = [-1, 0, -1, -1, -1, 1]
 
     hurtbox = Hurtbox()
 
     # Display initial UI
     ui = UI(screen=screen, agent_1=ball, agent_2=ball2)
+
+    # Game Controller
+    controller = Controller()
 
     hitbox_handler = HitboxHandler(screen)
     collision_handler = space.add_collision_handler(2, 1)
@@ -1017,9 +1162,8 @@ def main():
                     sys.exit(0)
                 elif event.key == pygame.K_SPACE:
                     # Trigger the smash attack when the spacebar is pressed
-                #    if(hammer.cool_down_count <= 0):
-                 #       hammer.attack.active = True
-                   
+                    # if(hammer.cool_down_count <= 0):
+                    hammer.attack.active = True 
                     punch2.attack.activate()
                 elif event.key == pygame.K_k:
                     # TEST: manual jump on 'k' pressed
@@ -1032,12 +1176,13 @@ def main():
 
         # Watch for FSM and physics_processes
         # print(ball.body.velocity, " ", ball2.body.velocity)
-        ball.direction = 1
-        ball2.direction = -1
-        ball._physics_process(DELTA)
-        ball.update_cool_down_count()
-        ball2._physics_process(DELTA)
-        ball2.update_cool_down_count()
+        controller.process_physics(agents=[ball, ball2], action_spaces=[action_space_1[:2], action_space_2[:2]]) # Slicing [:2] gives movement directions
+        # ball.direction = 1
+        # ball2.direction = -1
+        # ball._physics_process(DELTA)
+        # ball.update_cool_down_count()
+        # ball2._physics_process(DELTA)
+        # ball2.update_cool_down_count()
     
 
         # Quit if any ball goes below the threshold
@@ -1048,29 +1193,38 @@ def main():
         screen.fill((0, 0, 0))
 
         # Draw GameObject & hammer hitboxes:
-        hammer.update_pos(ball.shape.body.position.x, ball.shape.body.position.y)
-        hammer.attack.execute(game_obj=hammer, hitbox_handler=hitbox_handler)
-        hammer.update_hitbox_pos(ball.shape.body.position.x, ball.shape.body.position.y)
-
-        punch2.update_pos(ball2.shape.body.position.x, ball2.shape.body.position.y)
-        punch2.attack.execute(game_obj=punch2, hitbox_handler=hitbox_handler)
-        punch2.update_hitbox_pos(ball2.shape.body.position.x, ball2.shape.body.position.y)
-
+        controller.render_game_objects_and_functions(game_objects=[ball.attacks, ball2.attacks], agents=[ball, ball2], hitbox_handler=hitbox_handler, agent_action_spaces=[action_space_1[2:], action_space_2[2:]], frame_count=frame_count) #Slicing [2:] gives attacks
+        # hammer.update_pos(ball.shape.body.position.x, ball.shape.body.position.y)
+        # hammer.update_hitbox_pos(ball.shape.body.position.x, ball.shape.body.position.y)
+        # hammer.attack.execute(game_obj=hammer, hitbox_handler=hitbox_handler)
         
-        for hitbox in punch2.hitboxes:
-            hitbox.draw()
+        # punch2.update_pos(ball2.shape.body.position.x, ball2.shape.body.position.y)
+        # punch2.update_hitbox_pos(ball2.shape.body.position.x, ball2.shape.body.position.y)
+        # punch2.attack.execute(game_obj=punch2, hitbox_handler=hitbox_handler)
+
+        # gp_test.update_pos(ball.shape.body.position.x, ball.shape.body.position.y)
+        # gp_test.update_hitbox_pos(ball2.shape.body.position.x, ball2.shape.body.position.y)
+        # gp_test.attack.execute(game_obj=gp_test, hitbox_handler=hitbox_handler)
+
+        # frame_idx = frame_count % 26  # Loop through frames
+        # gp_test.draw_object(None, frame_idx)
+        
+        # for hitbox in punch2.hitboxes:
+        #     hitbox.draw()
               
-        for hitbox in hammer.hitboxes:
-            hitbox.draw()
+        # for hitbox in hammer.hitboxes:
+        #     hitbox.draw()
         
-     
+        # for hitbox in gp_test.hitboxes:
+        #     hitbox.draw()
     
         # hitbox_handler.apply_hitboxes(ball, ball.attacks)
         # hitbox_handler.apply_hitboxes(ball2, ball2.attacks)
 
         # Check if the GameObject hits Agent for each agent
-        hitbox_handler.object_hits_agent(game_objects=ball.attacks, attacking_agent=ball, attacked_agent=ball2)
-        hitbox_handler.object_hits_agent(game_objects=ball2.attacks, attacking_agent=ball2, attacked_agent=ball)
+        controller.check_game_hitboxes(agents=[ball, ball2], hitbox_handler=hitbox_handler)
+        # hitbox_handler.object_hits_agent(game_objects=ball.attacks, attacking_agent=ball, attacked_agent=ball2)
+        # hitbox_handler.object_hits_agent(game_objects=ball2.attacks, attacking_agent=ball2, attacked_agent=ball)
 
         # Render health UI
         ui.display_UI()
@@ -1081,8 +1235,8 @@ def main():
         space.debug_draw(draw_options)
         space.step(DELTA)
 
-        hammer.draw_object()
-        punch2.draw_object()
+        # hammer.draw_object()
+        # punch2.draw_object()
         pygame.display.update() # pygame.display.update()
         clock.tick(50)
         # pygame.image.save(screen, f"frames/frame_{frame_count:04d}.png")
