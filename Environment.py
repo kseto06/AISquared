@@ -12,6 +12,7 @@ width = 600
 height = 600
 
 DELTA = 1/50.0
+CUBE_DIM = 50
 
 # Custom draw/rendering options for Pymunk objects
 class CustomDrawOptions(DrawOptions):
@@ -40,6 +41,8 @@ class GameObject:
         self.image_width, self.image_height = self.image.get_size()
         self.image_x = (x + self.image_width//1.5)
         self.image_y = (y + self.image_height//1.5) #Centered
+        self.frames: Union[list, None] = None
+        self.going_left = False
         self.screen = screen
 
     def get_object_name(self):
@@ -47,10 +50,16 @@ class GameObject:
         return self.__class__.__name__
 
     def update_pos(self, x: int, y: int):
+        
         self.x = x
         self.y = y
-        self.image_x = (x + self.image_width//2) - 10
-        self.image_y = (y + self.image_height//2) - 10#Centered
+        if self.going_left:
+            self.image_x = (self.x + self.image_width//2) - 10 - CUBE_DIM*10
+            self.image_y = (self.y + self.image_height//2) - 10
+        else:
+            self.image_x = (x + self.image_width//2) - 10
+            self.image_y = (y + self.image_height//2) - 10#Centered
+        
 
     # GAME OBJECT HITBOXES
 
@@ -58,9 +67,8 @@ class GameObject:
         #Append a new hitbox to the GameObject's collection of hitboxes
         self.hitboxes.append(Hitbox(x, y, width, height, self.screen))
     
-    
     def reflect_hitboxes(self):
-        CUBE_DIM = 50
+        
         new_hitboxes = []
         for hitbox in self.hitboxes:
             # x = (self.x + CUBE_DIM/2) - (hitbox.x - (self.x + CUBE_DIM/2))
@@ -72,19 +80,45 @@ class GameObject:
             new_hitboxes.append(Hitbox(x, y, width, height, self.screen))
         self.hitboxes = new_hitboxes
 
-    def update_hitbox_pos(self, x, y, going_left):
+    def reflect_object(self):
+        
+        if self.going_left:
+            self.image = pygame.transform.flip(self.image, True, False)
+
+    def update_hitbox_pos(self, x: float, y: float, going_left: bool):
         self.x = x
         self.y = y
         self.construct_hitboxes()
-   
-        if(going_left == True):
+        self.going_left = going_left
+
+        # Booleans to track positions
+        if(self.going_left == True):
             self.reflect_hitboxes()
+            # try:
+            #     self.process()
+            # except Exception as e:
+            #     pass
+            self.reflect_object(self.going_left)
+
+    def process(self):
+        self.animation_timer += self.animation_speed
+        if self.animation_timer >= 1:
+            self.animation_timer = 0
+            self.current_frame_index += 1
+            if self.current_frame_index >= len(self.frames):
+                self.finished = True
 
     def draw_object(self):
-        self.screen.blit(self.image, (self.image_x, self.image_y))
+        img: pygame.image = self.image
+
+        if self.frames is not None:
+            if isinstance(self.frames, list):
+                img = self.frames[self.current_frame_index]
+
+        self.screen.blit(img, (self.image_x, self.image_y))
     
     """ def reflect_hitboxes(self):
-        CUBE_DIM = 50
+        
         new_hitboxes = []
         for hitbox in self.hitboxes:
             x = (self.x + CUBE_DIM/2) - (hitbox.x - (self.x + CUBE_DIM/2))
@@ -95,9 +129,6 @@ class GameObject:
         self.hitboxes = new_hitboxes
     """
     
-        
-
-
 class Move:
     # A move manages powers and transitions between them.
     def __init__(self, initial_power, player, opponent, frames: list, draw_object: callable):
@@ -394,6 +425,7 @@ class GroundPound(GameObject):
         self.finished = False  # Whether the animation is done
         self.delta_x = 0 #x displacement due to punch
         self.delta_y = 0 #y displacement due to punch
+        self.going_left = False
 
         on_hit_power = Power(5,self.player,self.opponent,self.frames,self.draw_object,"""
 game_obj.delta_x += 5
@@ -414,8 +446,10 @@ game_obj.delta_x -= 5
         )
         
         self.attack = Move(initial_power, self.player, self.opponent, self.frames, self.draw_object)
+    
+    # @Override
     def reflect_hitboxes(self):
-        CUBE_DIM = 50
+        
         new_hitboxes = []
         for hitbox in self.hitboxes:
             # x = (self.x + CUBE_DIM/2) - (hitbox.x - (self.x + CUBE_DIM/2))
@@ -427,38 +461,43 @@ game_obj.delta_x -= 5
             new_hitboxes.append(Hitbox(x, y, width, height, self.screen))
         self.hitboxes = new_hitboxes
 
+    # @Override: Handle animation frames instead of singular image
+    def reflect_object(self, going_left: bool):
+        new_frames = []
+        for frame in self.frames:
+            new_frames.append(pygame.transform.flip(frame, True, False)) # Flip each frame horizontally
+        self.frames = new_frames
+        # self.image = self.frames[self.current_frame_index]
+        self.going_left = going_left
+
     def update_pos(self, x: int, y: int):
+          
         self.x = x
         self.y = y
-        
-        self.image_x = (x + self.image_width//2) - 10 - 25 - self.delta_x
-        self.image_y = (y + self.image_height//2) - 10 - 75- self.delta_y#Centered
+
+        if not self.going_left:
+            self.image_x = (self.x + self.image_width//2) - 10 - CUBE_DIM * 3
+            self.image_y = (self.y + self.image_height//2) - 10 - 75- self.delta_y
+        else:
+            self.image_x = (x + self.image_width//2) - 10 - 25 - self.delta_x
+            self.image_y = (y + self.image_height//2) - 10 - 75- self.delta_y#Centered
     
 
     def construct_hitboxes(self):
         self.hitboxes = [] #martin edited
-        self.hitboxes.append(Hitbox(self.image_x , self.image_y,  # Top-left corner
+        if not self.going_left:
+            x = self.image_x + CUBE_DIM * 3
+        else:
+            x = self.image_x
+
+        self.hitboxes.append(Hitbox(x, self.image_y,  # Top-left corner
             self.image_width,  # Width
             self.image_height, self.screen)# Height
         )
         self.reflect_hitboxes()
-      
-        
-   # def update_hitbox_pos(self, x, y):
-     #   self.x = x 
-     #   self.y = y
-      #  self.construct_hitboxes()
-       
-        # Add hammer handle hitbox
-        # self.hitboxes.append(Hitbox(self.x, self.y, self.image_width+10, self.image_height, self.screen))
     
     def process(self):
-        self.animation_timer += self.animation_speed
-        if self.animation_timer >= 1:
-            self.animation_timer = 0
-            self.current_frame_index += 1
-            if self.current_frame_index >= len(self.frames):
-                self.finished = True
+        super().process()
 
     def draw_object(self):
         if not self.finished:
@@ -1063,9 +1102,10 @@ class Controller:
                     game_objects[a][i].update_pos(agents[0+a].shape.body.position.x, agents[1-a].shape.body.position.y)
   
 
-                    going_left = agents[1-a].direction == -1
+                    going_left = (agents[1-a].direction == -1)
                     game_objects[a][i].update_pos(agents[a].shape.body.position.x, agents[a].shape.body.position.y)
-                    game_objects[a][i].update_hitbox_pos(agents[a].shape.body.position.x, agents[a].shape.body.position.y,going_left)
+                    
+                    game_objects[a][i].update_hitbox_pos(agents[a].shape.body.position.x, agents[a].shape.body.position.y, going_left)
 
                     # game_objects[a][i].attack.activate()
 
@@ -1074,9 +1114,9 @@ class Controller:
                     for hitbox in game_objects[a][i].hitboxes:
                         hitbox.draw()
                     
-                    #if game_objects[a][i].get_object_name() in ['GroundPound']:
-                   #     game_objects[a][i].process()
-                    game_objects[a][i].process()
+                    if game_objects[a][i].get_object_name() in ['GroundPound']:
+                       game_objects[a][i].process()
+                    # game_objects[a][i].process()
                     game_objects[a][i].draw_object()
     
     def check_game_hitboxes(self, agents: list[Cube], hitbox_handler: HitboxHandler):
