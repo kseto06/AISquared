@@ -251,8 +251,6 @@ class Sword(GameObject):
             ((self.x+self.image_width) - 10, self.y),
             ((self.x+3*self.image_width//2) - 10, self.y)
         ]
-          
-      
 
         # Add hitboxes to the space using the hitbox_points
         L = len(hitbox_points)
@@ -264,9 +262,6 @@ class Sword(GameObject):
             x = min(x1, x2)  # Determine the x-coordinate of the hitbox
             y = min(y1, y2)  # Determine the y-coordinate of the hitbox
             self.add_hitbox(x, y, width, height) 
-       
-
-    
 
 class Throw(GameObject):
     pass
@@ -374,7 +369,6 @@ game_obj.delta_x -= 5
         self.image_x = (x + self.image_width//2) - 10 -75 +10 + self.delta_x
         self.image_y = (y + self.image_height//2) - 10 -20+10 + self.delta_y#Centered
 
-
     def construct_hitboxes(self):
         self.hitboxes = [] #martin edited
         self.add_hitbox(
@@ -449,7 +443,6 @@ game_obj.delta_x -= 5
     
     # @Override
     def reflect_hitboxes(self):
-        
         new_hitboxes = []
         for hitbox in self.hitboxes:
             # x = (self.x + CUBE_DIM/2) - (hitbox.x - (self.x + CUBE_DIM/2))
@@ -471,7 +464,6 @@ game_obj.delta_x -= 5
         self.going_left = going_left
 
     def update_pos(self, x: int, y: int):
-          
         self.x = x
         self.y = y
 
@@ -482,7 +474,6 @@ game_obj.delta_x -= 5
             self.image_x = (x + self.image_width//2) - 10 - 25 - self.delta_x
             self.image_y = (y + self.image_height//2) - 10 - 75- self.delta_y#Centered
     
-
     def construct_hitboxes(self):
         self.hitboxes = [] #martin edited
         if not self.going_left:
@@ -502,6 +493,9 @@ game_obj.delta_x -= 5
     def draw_object(self):
         if not self.finished:
             self.screen.blit(self.frames[self.current_frame_index], (self.image_x, self.image_y))
+        else:
+            #Else remove hitbox instances
+            self.hitboxes = []
       
 
     # TODO: Add specific hammer attack logic
@@ -578,6 +572,7 @@ class Cube:
 
         # Health
         self.health = health
+        self.lives = 3
 
         # Movement
         self.direction = 0
@@ -1011,10 +1006,29 @@ class UI:
         # Construct a list of agents
         self.agents = np.array([self.agent_1, self.agent_2])
 
+        # Score images
+        SCALE_FACTOR = 0.20
+        self.agent_1_score = pygame.image.load('assets/player1score.png')
+        self.agent_1_score = pygame.transform.scale(self.agent_1_score, (int(SCALE_FACTOR * self.agent_1_score.get_width()), int(SCALE_FACTOR * self.agent_1_score.get_height())))
+        self.agent_2_score = pygame.image.load('assets/player2score.png')
+        self.agent_2_score = pygame.transform.scale(self.agent_2_score, (int(SCALE_FACTOR * self.agent_2_score.get_width()), int(SCALE_FACTOR * self.agent_2_score.get_height())))
+       
+        # Life and death images
+        self.life = pygame.image.load('assets/life.png')
+        self.life = pygame.transform.scale(self.life, (int(0.075 * self.life.get_width()), int(0.075 * self.life.get_height())))
+        self.death = pygame.image.load('assets/death.png')
+        self.death = pygame.transform.scale(self.death, (int(0.075 * self.death.get_width()), int(0.075 * self.death.get_height())))
+
     def display_UI(self):
-        self.display_agent_healths()
+        # self.display_agent_healths()
+        self.display_agent_scores()
         self.display_percentages()
 
+    def display_agent_scores(self):
+        self.screen.blit(self.agent_1_score, (25, -35))
+        self.screen.blit(self.agent_2_score, (325, -35))
+
+    # @Deprecated: Use custom png icon
     def display_agent_healths(self):
         # Left health UI
         points_left = np.array([(100, 100), (180, 80), (200, 160), (120, 180)])#topleft, topright, bottomright, bottomleft
@@ -1063,7 +1077,7 @@ class UI:
         DARK_RED = (139, 0, 0)
 
         # Agent percentage text
-        font = pygame.font.Font(None, 55)
+        font = pygame.font.Font(None, 35)
         # render text & text colours:
         for i in range(len(self.agents)):
             COLOUR = WHITE
@@ -1075,8 +1089,18 @@ class UI:
                 COLOUR = DARK_RED
 
             text_surface = font.render(f'{self.agents[i].health}.0%', True, COLOUR)
-            text_rect = text_surface.get_rect(center=pygame.Rect(160+i*300, 50, 64, 50).center)
+            # text_rect_background = pygame.draw.rect(self.screen, (255,255,255), (220+i*100, 75, 70, 56))
+            # text_rect_background_border = pygame.draw.rect(self.screen, (0, 0, 0), (220+i*100, 75, 70, 56), 3)
+            text_rect = text_surface.get_rect(center=pygame.Rect(220+i*100, 75, 64, 50).center)
             self.screen.blit(text_surface, text_rect)
+
+            # Agent lives
+            for j in range(self.agents[i].lives):
+                self.screen.blit(self.life, (50+j*70 + i*250, 162))
+
+            # Agent deaths
+            for j in range(3 - self.agents[i].lives):
+                self.screen.blit(self.death, (50 + 2*70 - j*70 + i*250, 162))
 
     def draw_eyes(self, x: float, y: float, radius: int):
         '''
@@ -1130,6 +1154,20 @@ class Controller:
                 agents[i]._physics_process(DELTA)
                 agents[i].update_cool_down_count()
                 break
+
+    def process_lives(self, agents=list[Cube, Cube]):
+        for i in range(len(agents)):
+            #Reset on death
+            if agents[i].shape.body.position.y > 575:
+                agents[i].lives -= 1
+                agents[i].shape.body.position = pymunk.Vec2d(150 + 300*i, 100)
+                agents[i].direction = 1 if i == 0 else -1
+                agents[i].health = 0
+
+                if agents[i].lives <= 0:
+                    print(f"Agent {i+1} has lost all lives.")
+                    sys.exit()
+
 
 # @Override
 """
@@ -1266,7 +1304,7 @@ def main():
         ball1.shape.body.apply_force_at_local_point((force_magnitude * direction1[0], force_magnitude * direction1[1]), (0, 0))
         ball2.shape.body.apply_force_at_local_point((force_magnitude * direction2[0], force_magnitude * direction2[1]), (0, 0))
 
-    for _ in range(1000):
+    for _ in range(10000000):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 sys.exit(0)
@@ -1301,9 +1339,11 @@ def main():
     
 
         # Quit if any ball goes below the threshold
-        if ball.shape.body.position.y > quit_y_threshold or ball2.shape.body.position.y > quit_y_threshold:
-            print("A ball has fallen below the threshold. Exiting...")
-            sys.exit()
+        # if ball.shape.body.position.y > quit_y_threshold or ball2.shape.body.position.y > quit_y_threshold:
+        #     print("A ball has fallen below the threshold. Exiting...")
+        #     sys.exit()
+
+        controller.process_lives(agents=[ball, ball2])
 
         screen.fill((0, 0, 0))
 
