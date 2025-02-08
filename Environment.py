@@ -57,7 +57,8 @@ class GameObject:
     def add_hitbox(self, x: int, y: int, width: int, height: int):
         #Append a new hitbox to the GameObject's collection of hitboxes
         self.hitboxes.append(Hitbox(x, y, width, height, self.screen))
-
+    
+    
     def reflect_hitboxes(self):
         CUBE_DIM = 50
         new_hitboxes = []
@@ -71,10 +72,18 @@ class GameObject:
             new_hitboxes.append(Hitbox(x, y, width, height, self.screen))
         self.hitboxes = new_hitboxes
 
+    def update_hitbox_pos(self, x, y, going_left):
+        self.x = x
+        self.y = y
+        self.construct_hitboxes()
+   
+        if(going_left == True):
+            self.reflect_hitboxes()
+
     def draw_object(self):
         self.screen.blit(self.image, (self.image_x, self.image_y))
     
-    def reflect_hitboxes(self):
+    """ def reflect_hitboxes(self):
         CUBE_DIM = 50
         new_hitboxes = []
         for hitbox in self.hitboxes:
@@ -84,6 +93,7 @@ class GameObject:
             height = hitbox.height
             new_hitboxes.append(Hitbox(x, y, width, height, self.screen))
         self.hitboxes = new_hitboxes
+    """
     
         
 
@@ -104,7 +114,7 @@ class Move:
         self.frames = frames # List of animation frames
         self.logged_direction = None
         self.draw_object = draw_object
-        self.logged_direction = 1
+        self.logged_direction = -1
     def activate(self):
         if(not self.player.cool_down):
             self.active = True
@@ -112,10 +122,14 @@ class Move:
     def execute(self, game_obj: GameObject, hitbox_handler):
         # if game_obj.get_object_name() == "GroundPound":
         #     print(self.current_power.frames != None, self.current_power.frame_count)
-
+      #  if(self.player.direction != self.logged_direction):
+       #     game_obj.reflect_hitboxes()
+     #   self.logged_direction = self.player.direction
         if self.active == True and self.current_power:
             # self.draw_object(self.current_power.frames, frame_idx=self.current_power.frame_count)
             self.current_power.execute(game_obj)
+           
+          
             self.hit_occurred = hitbox_handler.object_hits_agent(game_objects=self.player.attacks, attacking_agent=self.player, attacked_agent=self.opponent)
             
             # Transition immediately on hit - NOTE: This may need to be removed since it will automatically trigger the attack
@@ -140,6 +154,7 @@ class Move:
         else:
             self.active = False
             self.current_power = self.initial_power
+      
     
 class Power:
     def __init__(self, duration: float, player, opponent, frames: list, draw_object: callable, power_script: str="", on_hit_power=None, on_miss_power=None):
@@ -196,6 +211,8 @@ class Sword(GameObject):
         self.y = y
         self.attack = None
     def construct_hitboxes(self):
+       
+        self.hitboxes = []  # Ensure old hitboxes are cleared first
         # Construct multiple hitboxes based on their (x, y) coordinates
         # NOTE: Change this for different types of game objects
         hitbox_points = [
@@ -203,6 +220,8 @@ class Sword(GameObject):
             ((self.x+self.image_width) - 10, self.y),
             ((self.x+3*self.image_width//2) - 10, self.y)
         ]
+          
+      
 
         # Add hitboxes to the space using the hitbox_points
         L = len(hitbox_points)
@@ -214,11 +233,9 @@ class Sword(GameObject):
             x = min(x1, x2)  # Determine the x-coordinate of the hitbox
             y = min(y1, y2)  # Determine the y-coordinate of the hitbox
             self.add_hitbox(x, y, width, height) 
+       
 
-    def update_hitbox_pos(self, x, y):
-        self.x = x
-        self.y = y
-        self.construct_hitboxes()
+    
 
 class Throw(GameObject):
     pass
@@ -269,10 +286,10 @@ game_obj.image_y = (game_obj.y + game_obj.image_height//2) - 10#Centered
             self.image_height # Height
         )
         
-    def update_hitbox_pos(self, x, y):
-        self.x = x
-        self.y = y
-        self.construct_hitboxes()
+    #def update_hitbox_pos(self, x, y):
+       # self.x = x
+       # self.y = y
+       # self.construct_hitboxes()
         # Add hammer handle hitbox
        # self.hitboxes.append(Hitbox(self.x, self.y, self.image_width+10, self.image_height, self.screen))
        
@@ -335,10 +352,10 @@ game_obj.delta_x -= 5
             self.image_height # Height
         )
         
-    def update_hitbox_pos(self, x, y):
-        self.x = x 
-        self.y = y
-        self.construct_hitboxes()
+ #   def update_hitbox_pos(self, x, y):
+   ##     self.x = x 
+  #      self.y = y
+  #      self.construct_hitboxes()
         # Add hammer handle hitbox
        # self.hitboxes.append(Hitbox(self.x, self.y, self.image_width+10, self.image_height, self.screen))
        
@@ -397,26 +414,41 @@ game_obj.delta_x -= 5
         )
         
         self.attack = Move(initial_power, self.player, self.opponent, self.frames, self.draw_object)
-    
+    def reflect_hitboxes(self):
+        CUBE_DIM = 50
+        new_hitboxes = []
+        for hitbox in self.hitboxes:
+            # x = (self.x + CUBE_DIM/2) - (hitbox.x - (self.x + CUBE_DIM/2))
+            x = 2 * (self.x + CUBE_DIM / 2) - hitbox.x - CUBE_DIM*2.5
+            # y = (self.y + CUBE_DIM/2) - (hitbox.y - (self.y + CUBE_DIM/2))
+            y = hitbox.y
+            width = hitbox.width
+            height = hitbox.height
+            new_hitboxes.append(Hitbox(x, y, width, height, self.screen))
+        self.hitboxes = new_hitboxes
+
     def update_pos(self, x: int, y: int):
         self.x = x
         self.y = y
         
         self.image_x = (x + self.image_width//2) - 10 - 25 - self.delta_x
         self.image_y = (y + self.image_height//2) - 10 - 75- self.delta_y#Centered
+    
 
     def construct_hitboxes(self):
         self.hitboxes = [] #martin edited
-        self.add_hitbox(
-            self.image_x , self.image_y,  # Top-left corner
+        self.hitboxes.append(Hitbox(self.image_x , self.image_y,  # Top-left corner
             self.image_width,  # Width
-            self.image_height # Height
+            self.image_height, self.screen)# Height
         )
+        self.reflect_hitboxes()
+      
         
-    def update_hitbox_pos(self, x, y):
-        self.x = x 
-        self.y = y
-        self.construct_hitboxes()
+   # def update_hitbox_pos(self, x, y):
+     #   self.x = x 
+     #   self.y = y
+      #  self.construct_hitboxes()
+       
         # Add hammer handle hitbox
         # self.hitboxes.append(Hitbox(self.x, self.y, self.image_width+10, self.image_height, self.screen))
     
@@ -431,6 +463,7 @@ game_obj.delta_x -= 5
     def draw_object(self):
         if not self.finished:
             self.screen.blit(self.frames[self.current_frame_index], (self.image_x, self.image_y))
+      
 
     # TODO: Add specific hammer attack logic
 
@@ -823,11 +856,15 @@ class Hitbox:
         self.width = width
         self.height = height
         self.screen = screen
-        self.hitbox_rect = pygame.draw.rect(self.screen, (255, 0, 0), (self.x, self.y, self.width, self.height), 1)
+        #this one draws the regular one
+       
+       # self.hitbox_rect = pygame.draw.rect(self.screen, (255, 0, 255), (self.x, self.y, self.width, self.height), 1)
     
     def draw(self):
+        pass
         # pygame.draw.rect(self.screen, (255, 0, 0), (self.x, self.y, self.width, self.height), 1)
-        self.hitbox_rect.topleft = (self.x, self.y)
+       # self.hitbox_rect.topleft = (self.x, self.y)
+     
 
 class HitboxHandler:
     '''
@@ -843,14 +880,16 @@ class HitboxHandler:
                 continue
 
             game_obj_hitboxes = game_obj.hitboxes
+           
             agent_bb = attacked_agent.get_bounding_box()
 
             # Bounding box rectangle for agent
+       
             pygame.draw.rect(self.screen, (0, 255, 0), (int(agent_bb.left), int(agent_bb.bottom), int(agent_bb.right - agent_bb.left), int(agent_bb.top - agent_bb.bottom)), 1)
             
             for hitbox in game_obj_hitboxes:
                 # Draw a rect for the game object
-                game_obj_hitbox = pygame.draw.rect(self.screen, (255, 0, 0), (hitbox.x, hitbox.y, hitbox.width, hitbox.height), 1)
+                game_obj_hitbox = pygame.draw.rect(self.screen, (255, 255, 0), (hitbox.x, hitbox.y, hitbox.width, hitbox.height), 1)
 
                 # Check for overlap between a pygame.rect and pymunk bb
                 if game_obj_hitbox.colliderect(agent_bb.left, agent_bb.bottom, agent_bb.right - agent_bb.left, agent_bb.top - agent_bb.bottom):
@@ -887,6 +926,7 @@ class HitboxHandler:
 
     # NOTE: Doesn't work
     def apply_hitboxes(self, agent: Cube, game_objects: list[GameObject]):
+        
         '''
         Applies hitbox UI and execution logic to the game objects
         '''
@@ -896,10 +936,11 @@ class HitboxHandler:
             game_obj.update_pos(agent.shape.body.position.x, agent.shape.body.position.y)
             
             if game_obj.attack is not None:
+                
                 game_obj.attack.execute(game_obj=game_obj, hitbox_handler=self)
 
             game_obj.update_hitbox_pos(agent.shape.body.position.x, agent.shape.body.position.y)
-            
+           
             for hitbox in game_obj.hitboxes:
                 hitbox.draw()
             game_obj.draw_object()
@@ -1020,7 +1061,12 @@ class Controller:
                 if agent_action_spaces[a][i] == 1 and game_objects[a][i] is not None:
         
                     game_objects[a][i].update_pos(agents[0+a].shape.body.position.x, agents[1-a].shape.body.position.y)
-                    game_objects[a][i].update_hitbox_pos(agents[0+a].shape.body.position.x, agents[1-a].shape.body.position.y)
+  
+
+                    going_left = agents[1-a].direction == -1
+                    game_objects[a][i].update_pos(agents[a].shape.body.position.x, agents[a].shape.body.position.y)
+                    game_objects[a][i].update_hitbox_pos(agents[a].shape.body.position.x, agents[a].shape.body.position.y,going_left)
+
                     # game_objects[a][i].attack.activate()
 
                     game_objects[a][i].attack.execute(game_obj=game_objects[a][i], hitbox_handler=hitbox_handler)
@@ -1192,6 +1238,8 @@ def main():
                     # if(hammer.cool_down_count <= 0):
                     hammer.attack.active = True 
                     punch2.attack.activate()
+                  
+
                 elif event.key == pygame.K_k:
                     # TEST: manual jump on 'k' pressed
                     ball.jump()
