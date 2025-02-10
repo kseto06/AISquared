@@ -1,4 +1,4 @@
-<h1 align= "center">AI Squared - UTMIST Reinforcement Learning Tournament</h1>
+<h1 align= "center">AI^2 - UTMIST Reinforcement Learning Tournament</h1>
 
 Code repository for environment design and Colab integration for UTMIST's AI^2 Multi-Agent RL Tournament.
 <br>
