@@ -5,4 +5,4 @@ Code repository for environment design and Colab integration for UTMIST's AI^2 M
 <br>
 View the official code repository here:
 <br>
-`[Google Colab Notebook](https://colab.research.google.com/drive/1V184vtHSagN13L0SbWGmnY-jCDvIefmm?usp=sharing)`
+[Google Colab Notebook](https://colab.research.google.com/drive/1V184vtHSagN13L0SbWGmnY-jCDvIefmm?usp=sharing)
